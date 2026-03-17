@@ -35,7 +35,9 @@
         </div>
         <!-- 登录图标 + 日夜切换按钮 -->
         <div class="action-icons">
-            <i class="fas fa-user-circle login-icon" title="登录 / 个人中心"></i>
+            <a href="/Login?handler=logout" style="text-decoration: none; color: inherit;" onclick="return confirm('确定要退出登录吗？');">
+                <i class="fas fa-sign-out-alt login-icon" title="退出登录"></i>
+            </a>
             <div class="theme-toggle" id="themeToggleBtn">
                 <i class="fas fa-sun"></i>
                 <i class="fas fa-moon night-icon"></i>

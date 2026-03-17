@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using SmartHomeDashboard.Services;
 
@@ -10,6 +11,12 @@ namespace SmartHomeDashboard.Pages
         public IndexModel(DeviceDataService deviceService)
         {
             _deviceService = deviceService;
+        }
+
+        public IActionResult OnGetLogout()
+        {
+            HttpContext.Session.Remove("IsLoggedIn");
+            return RedirectToPage("/Login");
         }
 
         // KPI 数据

@@ -1,0 +1,461 @@
+﻿@page
+@model SmartHomeDashboard.Pages.LoginModel
+@{
+    ViewData["Title"] = "登录 - 智能家居后台监控系统";
+    Layout = null;
+}
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"]</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            max-width: 420px;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
+            padding: 40px 30px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            animation: slideUp 0.5s ease;
+        }
+
+        @@keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .login-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+            .login-header h1 {
+                font-size: 2.2rem;
+                font-weight: 600;
+                background: linear-gradient(135deg, #667eea, #764ba2);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                margin-bottom: 10px;
+            }
+
+            .login-header p {
+                color: #666;
+                font-size: 0.95rem;
+            }
+
+        .smart-home-icon {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+        }
+
+            .smart-home-icon i {
+                font-size: 40px;
+                color: white;
+            }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+            .form-group label {
+                display: block;
+                margin-bottom: 8px;
+                font-weight: 500;
+                color: #333;
+                font-size: 0.95rem;
+            }
+
+        .password-input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+            .password-input-wrapper input {
+                width: 100%;
+                padding: 15px 45px 15px 15px;
+                border: 2px solid #e0e0e0;
+                border-radius: 12px;
+                font-size: 1rem;
+                transition: all 0.3s ease;
+                background: white;
+            }
+
+                .password-input-wrapper input:focus {
+                    outline: none;
+                    border-color: #667eea;
+                    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+                }
+
+                .password-input-wrapper input.error {
+                    border-color: #f44336;
+                }
+
+        .toggle-password {
+            position: absolute;
+            right: 15px;
+            background: none;
+            border: none;
+            color: #999;
+            cursor: pointer;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: color 0.3s;
+        }
+
+            .toggle-password:hover {
+                color: #667eea;
+            }
+
+        .error-message {
+            color: #f44336;
+            font-size: 0.85rem;
+            margin-top: 8px;
+            min-height: 20px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+            .error-message i {
+                font-size: 0.9rem;
+            }
+
+        .login-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+
+            .login-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+            }
+
+            .login-btn:active {
+                transform: translateY(0);
+            }
+
+            .login-btn i {
+                font-size: 1.2rem;
+                transition: transform 0.3s;
+            }
+
+            .login-btn:hover i {
+                transform: translateX(5px);
+            }
+
+            .login-btn:disabled {
+                opacity: 0.7;
+                cursor: not-allowed;
+                transform: none;
+            }
+
+        .login-footer {
+            margin-top: 30px;
+            text-align: center;
+            color: #999;
+            font-size: 0.85rem;
+        }
+
+            .login-footer a {
+                color: #667eea;
+                text-decoration: none;
+                font-weight: 500;
+            }
+
+                .login-footer a:hover {
+                    text-decoration: underline;
+                }
+
+        .features {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+
+        .feature-item {
+            text-align: center;
+            color: #666;
+        }
+
+            .feature-item i {
+                font-size: 1.5rem;
+                color: #667eea;
+                margin-bottom: 5px;
+            }
+
+            .feature-item span {
+                font-size: 0.8rem;
+                display: block;
+            }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @@keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* 夜间模式支持 */
+        body.night-mode .login-container {
+            background: rgba(18, 24, 36, 0.98);
+            border: 1px solid rgba(66, 140, 200, 0.25);
+        }
+
+        body.night-mode .login-header h1 {
+            background: linear-gradient(135deg, #ffffff, #bddcff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        body.night-mode .login-header p {
+            color: #8b99b2;
+        }
+
+        body.night-mode .form-group label {
+            color: #b4ceff;
+        }
+
+        body.night-mode .password-input-wrapper input {
+            background: rgba(20, 30, 44, 0.9);
+            border: 1px solid #314d6b;
+            color: #eef5ff;
+        }
+
+            body.night-mode .password-input-wrapper input:focus {
+                border-color: #4794e0;
+                box-shadow: 0 0 0 4px rgba(71, 148, 224, 0.1);
+            }
+
+        body.night-mode .feature-item {
+            color: #8b99b2;
+        }
+
+            body.night-mode .feature-item i {
+                color: #6bb9ff;
+            }
+
+        body.night-mode .login-footer {
+            color: #64748b;
+        }
+
+            body.night-mode .login-footer a {
+                color: #6bb9ff;
+            }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <div class="smart-home-icon">
+                <i class="fas fa-home"></i>
+            </div>
+            <h1>智能家居中枢</h1>
+            <p>请输入访问密码进入后台监控系统</p>
+        </div>
+
+        <form method="post" id="loginForm">
+            <div class="form-group">
+                <label for="password">
+                    <i class="fas fa-lock" style="margin-right: 5px; color: #667eea;"></i>
+                    访问密码
+                </label>
+                <div class="password-input-wrapper">
+                    <input type="password"
+                           id="password"
+                           name="Password"
+                           placeholder="请输入密码"
+                           required
+                           autofocus
+                           class="@(Model?.ErrorMessage != null ? "error" : "")" />
+                    <button type="button" class="toggle-password" onclick="togglePasswordVisibility()">
+                        <i class="fas fa-eye" id="toggleIcon"></i>
+                    </button>
+                </div>
+                <div class="error-message">
+                    @if (Model?.ErrorMessage != null)
+                    {
+                        <i class="fas fa-exclamation-circle"></i>
+                        <span>@Model.ErrorMessage</span>
+                    }
+                </div>
+            </div>
+
+            <button type="submit" class="login-btn" id="loginBtn">
+                <span>进入系统</span>
+                <i class="fas fa-arrow-right"></i>
+            </button>
+        </form>
+
+        <div class="features">
+            <div class="feature-item">
+                <i class="fas fa-microchip"></i>
+                <span>设备监控</span>
+            </div>
+            <div class="feature-item">
+                <i class="fas fa-chart-line"></i>
+                <span>能耗分析</span>
+            </div>
+            <div class="feature-item">
+                <i class="fas fa-shield-alt"></i>
+                <span>安防系统</span>
+            </div>
+            <div class="feature-item">
+                <i class="fas fa-robot"></i>
+                <span>智能场景</span>
+            </div>
+        </div>
+
+        <div class="login-footer">
+            <p>智能家居后台监控系统 v1.0</p>
+            <p style="margin-top: 5px;">
+                <i class="fas fa-circle" style="font-size: 0.4rem; color: #4caf50;"></i>
+                系统在线 · 安全连接
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // 密码显示/隐藏切换
+        function togglePasswordVisibility() {
+            const passwordInput = document.getElementById('password');
+            const toggleIcon = document.getElementById('toggleIcon');
+
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                toggleIcon.className = 'fas fa-eye-slash';
+            } else {
+                passwordInput.type = 'password';
+                toggleIcon.className = 'fas fa-eye';
+            }
+        }
+
+        // 表单提交动画
+        document.getElementById('loginForm')?.addEventListener('submit', function(e) {
+            const passwordInput = document.getElementById('password');
+            const loginBtn = document.getElementById('loginBtn');
+
+            if (!passwordInput.value) {
+                e.preventDefault();
+                passwordInput.classList.add('error');
+                showError('请输入密码');
+                return;
+            }
+
+            // 显示加载状态
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = '<span class="loading-spinner"></span><span>验证中...</span>';
+        });
+
+        // 移除错误样式当用户开始输入
+        document.getElementById('password')?.addEventListener('input', function() {
+            this.classList.remove('error');
+            const errorMsg = document.querySelector('.error-message');
+            if (errorMsg) {
+                errorMsg.innerHTML = '';
+            }
+        });
+
+        // 显示错误消息
+        function showError(message) {
+            const errorMsg = document.querySelector('.error-message');
+            if (errorMsg) {
+                errorMsg.innerHTML = `<i class="fas fa-exclamation-circle"></i><span>${message}</span>`;
+            }
+        }
+
+        // 检测并应用夜间模式（根据时间）
+        function checkAndApplyNightMode() {
+            const hours = new Date().getHours();
+            const isNightTime = hours >= 18 || hours < 6;
+
+            if (isNightTime) {
+                document.body.classList.add('night-mode');
+            } else {
+                document.body.classList.remove('night-mode');
+            }
+        }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAndApplyNightMode();
+            // 每小时检查一次
+            setInterval(checkAndApplyNightMode, 3600000);
+        });
+
+        // 防止重复提交
+        let submitted = false;
+        document.getElementById('loginForm')?.addEventListener('submit', function(e) {
+            if (submitted) {
+                e.preventDefault();
+                return;
+            }
+            submitted = true;
+        });
+    </script>
+</body>
+</html>

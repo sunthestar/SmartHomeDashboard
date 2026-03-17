@@ -3,8 +3,19 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using SmartHomeDashboard.Services;
 using SmartHomeDashboard.Hubs;
+using SmartHomeDashboard.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// 添加 Session 服务
+builder.Services.AddDistributedMemoryCache();
+builder.Services.AddSession(options =>
+{
+    options.IdleTimeout = TimeSpan.FromHours(8); // 设置会话超时时间
+    options.Cookie.HttpOnly = true;
+    options.Cookie.IsEssential = true;
+    options.Cookie.Name = ".SmartHome.Session";
+});
 
 // 添加 Razor Pages 和 控制器
 builder.Services.AddRazorPages();
@@ -39,6 +50,13 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
+
+// 使用 Session
+app.UseSession();
+
+// 使用登录检查中间件
+app.UseMiddleware<LoginCheckMiddleware>();
+
 app.UseAuthorization();
 
 // 映射 SignalR Hub
