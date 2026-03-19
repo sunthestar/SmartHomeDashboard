@@ -33,7 +33,7 @@
             <span id="datePart">@DateTime.Now.ToString("yyyy-MM-dd dddd")</span>
             <span id="timePart" style="margin-left: 8px; font-family: monospace;">@DateTime.Now.ToString("HH:mm:ss")</span>
         </div>
-        <!-- 登录图标 + 日夜切换按钮 -->
+        <!-- 退出登录图标 -->
         <div class="action-icons">
             <a href="/Login?handler=logout" style="text-decoration: none; color: inherit;" onclick="return confirm('确定要退出登录吗？');">
                 <i class="fas fa-sign-out-alt login-icon" title="退出登录"></i>
@@ -99,28 +99,34 @@
         <!-- 房间标签 -->
         <div class="room-tabs">
             <div class="room-tab active" data-room="all"><i class="fas fa-home"></i> 全部</div>
-            <div class="room-tab" data-room="living"><i class="fas fa-couch"></i> 客厅</div>
-            <div class="room-tab" data-room="master-bedroom"><i class="fas fa-bed"></i> 主卧</div>
-            <div class="room-tab" data-room="second-bedroom"><i class="fas fa-bed"></i> 次卧</div>
-            <div class="room-tab" data-room="kitchen"><i class="fas fa-kitchen-set"></i> 厨房</div>
-            <div class="room-tab" data-room="bathroom"><i class="fas fa-bath"></i> 浴室</div>
-            <div class="room-tab" data-room="dining"><i class="fas fa-utensils"></i> 餐厅</div>
-            <div class="room-tab" data-room="entrance"><i class="fas fa-door-open"></i> 入口</div>
+            @foreach (var room in Model.Rooms)
+            {
+                <div class="room-tab" data-room="@room.RoomId">
+                    <i class="fas @GetRoomIcon(room.RoomId)"></i> @room.RoomName
+                </div>
+            }
         </div>
 
         <div class="device-grid" id="deviceGrid">
             @foreach (var device in Model.Devices)
             {
                 var isOffline = !device.IsOn && device.StatusText == "离线";
-                <div class="device-item @(isOffline ? "offline" : "")" data-id="@device.Id" data-room="@device.Room" data-type="@device.Type" data-power="@device.PowerValue" style="cursor: pointer;" title="点击设置">
+                <div class="device-item @(isOffline ? "offline" : "")"
+                     data-id="@device.Id"
+                     data-room="@device.RoomIdentifier"
+                     data-type="@device.TypeIdentifier"
+                     data-power="@device.PowerValue"
+                     style="cursor: pointer;"
+                     title="点击设置">
                     <div class="device-row">
                         <div class="device-name">
                             <i class="fas @device.Icon"></i>
                             <span>@device.Name</span>
+                            <span class="device-number-badge" style="font-size:0.7rem; color:#666; margin-left:5px;">#@device.DeviceNumber</span>
                         </div>
                         <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                             <div class="device-status @(device.IsOn && device.StatusText != "离线" ? "on" : "")"
-                                 data-device-type="@device.Type"
+                                 data-device-type="@device.TypeIdentifier"
                                  data-is-on="@(device.IsOn.ToString().ToLower())"
                                  data-temperature="@device.Temperature"
                                  data-humidity="@device.Humidity"
@@ -147,7 +153,7 @@
                                         }
                                         else
                                         {
-                                            switch (device.Type)
+                                            switch (device.TypeIdentifier)
                                             {
                                                 case "lock":
                                                     @(device.IsOn ? "已上锁" : "未上锁")
@@ -157,11 +163,11 @@
                                                     {
                                                         var modeText = device.Mode switch
                                                         {
-                                                            "cool" => "制冷",
-                                                            "heat" => "制热",
-                                                            "fan" => "送风",
-                                                            "dry" => "除湿",
-                                                            "auto" => "自动",
+                                                                                        "cool" => "制冷",
+                                                                                        "heat" => "制热",
+                                                                                        "fan" => "送风",
+                                                                                        "dry" => "除湿",
+                                                                                        "auto" => "自动",
                                                             _ => device.Mode ?? "制冷"
                                                         };
                                                         @:@(modeText) @(device.Temperature?.ToString("F0") ?? "24")°C
@@ -244,7 +250,7 @@
                                 }
                                 else
                                 {
-                                    switch (device.Type)
+                                    switch (device.TypeIdentifier)
                                     {
                                         case "lock":
                                             if (device.Humidity.HasValue)
@@ -294,7 +300,8 @@
                             }
                         </span>
                         <span class="device-power" data-power-value="@device.PowerValue">
-                            @if (device.Type == "lock" || device.Type == "camera" || device.Type == "temp-sensor" || device.Type == "humidity-sensor")
+                            @if (device.TypeIdentifier == "lock" || device.TypeIdentifier == "camera" ||
+                                                    device.TypeIdentifier == "temp-sensor" || device.TypeIdentifier == "humidity-sensor")
                             {
                                 if (device.Humidity.HasValue)
                                 {
@@ -445,26 +452,19 @@
                 <div class="form-group">
                     <label for="deviceRoom">所在房间</label>
                     <select id="deviceRoom" name="deviceRoom" required>
-                        <option value="living">客厅</option>
-                        <option value="master-bedroom">主卧</option>
-                        <option value="second-bedroom">次卧</option>
-                        <option value="kitchen">厨房</option>
-                        <option value="bathroom">浴室</option>
-                        <option value="dining">餐厅</option>
-                        <option value="entrance">入口</option>
+                        @foreach (var room in Model.Rooms)
+                        {
+                            <option value="@room.RoomId">@room.RoomName</option>
+                        }
                     </select>
                 </div>
                 <div class="form-group">
                     <label for="deviceType">设备类型</label>
                     <select id="deviceType" name="deviceType" required>
-                        <option value="light">💡 灯泡</option>
-                        <option value="ac">❄️ 空调</option>
-                        <option value="lock">🔒 门锁</option>
-                        <option value="camera">📹 摄像头</option>
-                        <option value="fan">🌀 风扇</option>
-                        <option value="temp-sensor">🌡️ 温度传感器</option>
-                        <option value="humidity-sensor">💧 湿度传感器</option>
-                        <option value="motor">⚙️ 电机</option>
+                        @foreach (var type in Model.DeviceTypes)
+                        {
+                            <option value="@type.TypeId" data-icon="@type.Icon">@type.TypeName</option>
+                        }
                     </select>
                 </div>
                 <div class="form-group" id="sensorTempGroup" style="display: none;">
@@ -955,6 +955,23 @@
     }
 </style>
 
+@functions {
+    public string GetRoomIcon(string roomId)
+    {
+        return roomId switch
+        {
+            "living" => "fa-couch",
+            "master-bedroom" => "fa-bed",
+            "second-bedroom" => "fa-bed",
+            "kitchen" => "fa-kitchen-set",
+            "bathroom" => "fa-bath",
+            "dining" => "fa-utensils",
+            "entrance" => "fa-door-open",
+            _ => "fa-home"
+        };
+    }
+}
+
 @section Scripts {
     <script>
         // ==================== 全局变量 ====================
@@ -962,6 +979,8 @@
         let powerHistory = [];
         let currentDeviceSettings = null;
         let signalRConnection = null;
+        let roomData = @Html.Raw(Json.Serialize(Model.Rooms));
+        let deviceTypeData = @Html.Raw(Json.Serialize(Model.DeviceTypes));
 
         // ==================== 页面初始化 ====================
         document.addEventListener('DOMContentLoaded', function() {
@@ -1177,8 +1196,8 @@
                 const card = document.querySelector(`.device-item[data-id="${device.id}"]`);
                 if (card) {
                     // 更新数据属性
-                    card.dataset.room = device.room;
-                    card.dataset.type = device.type;
+                    card.dataset.room = device.roomIdentifier;
+                    card.dataset.type = device.typeIdentifier;
                     card.dataset.power = device.powerValue;
 
                     // 更新状态文本
@@ -1235,8 +1254,8 @@
                         powerSpan.dataset.powerValue = device.powerValue;
 
                         // 如果是电池设备，更新电池图标
-                        if (device.type === 'lock' || device.type === 'camera' ||
-                            device.type === 'temp-sensor' || device.type === 'humidity-sensor') {
+                        if (device.typeIdentifier === 'lock' || device.typeIdentifier === 'camera' ||
+                            device.typeIdentifier === 'temp-sensor' || device.typeIdentifier === 'humidity-sensor') {
                             if (device.humidity) {
                                 const batteryLevel = device.humidity;
                                 const batteryIcon = powerSpan.querySelector('.fa-battery-full, .fa-battery-three-quarters, .fa-battery-half, .fa-battery-quarter, .fa-battery-empty');
@@ -1757,55 +1776,20 @@
             }
         }
 
-                // ==================== 城市名称映射表（英文转中文）====================
+        // ==================== 获取天气数据（自动定位）====================
+        // 城市名称映射表
         const cityNameMap = {
-            // 江西
-            'jiangxi': '江西',
-            'nanchang': '南昌',
-            'jiujiang': '九江',
-            'ganzhou': '赣州',
-            'jian': '吉安',
-            'jingdezhen': '景德镇',
-            'pingxiang': '萍乡',
-            'xinyu': '新余',
-            'yingtan': '鹰潭',
-            'yichun': '宜春',
-            'fuzhou': '抚州',
-            'shangrao': '上饶',
-
-            // 北京
-            'beijing': '北京',
-
-            // 上海
-            'shanghai': '上海',
-
-            // 广东
-            'guangdong': '广东',
-            'guangzhou': '广州',
-            'shenzhen': '深圳',
-            'dongguan': '东莞',
-            'foshan': '佛山',
-            'zhuhai': '珠海',
-
-            // 江苏
-            'jiangsu': '江苏',
-            'nanjing': '南京',
-            'suzhou': '苏州',
-            'wuxi': '无锡',
-
-            // 浙江
-            'zhejiang': '浙江',
-            'hangzhou': '杭州',
-            'ningbo': '宁波',
-            'wenzhou': '温州',
-
-            // 添加更多城市...
+            'beijing': '北京', 'shanghai': '上海', 'tianjin': '天津', 'chongqing': '重庆',
+            'jiangxi': '江西', 'nanchang': '南昌', 'jiujiang': '九江', 'ganzhou': '赣州',
+            'guangdong': '广东', 'guangzhou': '广州', 'shenzhen': '深圳',
+            'jiangsu': '江苏', 'nanjing': '南京', 'suzhou': '苏州',
+            'zhejiang': '浙江', 'hangzhou': '杭州', 'ningbo': '宁波',
+            'fujian': '福建', 'fuzhou': '福州', 'xiamen': '厦门'
         };
 
-        // ==================== 获取天气数据（自动定位）====================
         async function getWeatherData() {
             try {
-                // 1. 先通过IP获取用户位置（免费API，无需授权）
+                // 先通过IP获取用户位置
                 const ipResponse = await fetch('https://ipapi.co/json/');
 
                 if (!ipResponse.ok) {
@@ -1818,56 +1802,39 @@
                 // 提取位置信息
                 const city = ipData.city || ipData.region || '未知';
                 const region = ipData.region || '';
-                const country = ipData.country_name || '';
                 const latitude = ipData.latitude;
                 const longitude = ipData.longitude;
 
                 // 转换城市名称为中文
                 let displayCity = city;
 
-                // 处理 "jiangxi-nanchang" 格式
                 if (city.includes('-')) {
                     const parts = city.split('-');
-                    // 取最后一部分作为城市名
                     const lastPart = parts[parts.length - 1].toLowerCase();
                     displayCity = cityNameMap[lastPart] || lastPart;
-                }
-                // 处理英文城市名
-                else if (cityNameMap[city.toLowerCase()]) {
+                } else if (cityNameMap[city.toLowerCase()]) {
                     displayCity = cityNameMap[city.toLowerCase()];
                 }
 
-                // 如果仍然显示英文，尝试提取可读部分
-                if (displayCity.match(/^[a-zA-Z]/)) {
-                    // 将首字母大写转换为可读格式
-                    displayCity = displayCity.charAt(0).toUpperCase() + displayCity.slice(1);
-                }
-
-                // 最终显示：只显示城市名（南昌）
                 document.getElementById('cityName').textContent = displayCity;
 
-                // 2. 如果有坐标，获取天气数据
+                // 如果有坐标，获取天气数据
                 if (latitude && longitude) {
                     await getWeatherByCoordinates(latitude, longitude, displayCity);
                 } else {
-                    // 如果IP定位失败，使用北京作为默认
-                    console.warn('IP定位失败，使用默认北京坐标');
                     document.getElementById('cityName').textContent = '北京';
                     await getWeatherByCoordinates(39.9042, 116.4074, '北京');
                 }
 
             } catch (error) {
                 console.error('获取位置失败:', error);
-                // 出错时使用默认北京
                 document.getElementById('cityName').textContent = '北京';
                 await getWeatherByCoordinates(39.9042, 116.4074, '北京');
             }
         }
 
-                // 根据坐标获取天气
         async function getWeatherByCoordinates(lat, lon, cityName) {
             try {
-                // 使用Open-Meteo免费天气API
                 const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weathercode,wind_speed_10m&timezone=auto`;
 
                 const weatherResponse = await fetch(weatherUrl);
@@ -1882,7 +1849,6 @@
                     const temperature = Math.round(weatherData.current.temperature_2m);
                     const humidity = weatherData.current.relative_humidity_2m;
                     const weatherCode = weatherData.current.weathercode;
-                    const windSpeed = weatherData.current.wind_speed_10m;
 
                     const weatherInfo = getWeatherInfo(weatherCode);
 
@@ -1891,7 +1857,6 @@
                     document.getElementById('humidityValue').textContent = humidity;
                     document.getElementById('weatherIcon').className = `fas ${weatherInfo.icon}`;
 
-                    // 更新温度颜色
                     const tempElement = document.getElementById('weatherTemp');
                     tempElement.classList.remove('high-temp', 'low-temp');
                     if (temperature >= 30) {
@@ -1899,8 +1864,6 @@
                     } else if (temperature <= 10) {
                         tempElement.classList.add('low-temp');
                     }
-
-                    console.log(`天气更新成功: ${cityName}, ${temperature}°C, ${weatherInfo.description}`);
                 }
             } catch (error) {
                 console.error('获取天气数据失败:', error);
@@ -1908,7 +1871,6 @@
             }
         }
 
-        // ==================== 根据天气代码获取图标和描述 ====================
         function getWeatherInfo(code) {
             const weatherMap = {
                 0: { icon: 'fa-sun', description: '晴朗' },
@@ -1920,17 +1882,12 @@
                 51: { icon: 'fa-cloud-rain', description: '毛毛雨' },
                 53: { icon: 'fa-cloud-rain', description: '小雨' },
                 55: { icon: 'fa-cloud-rain', description: '中雨' },
-                56: { icon: 'fa-cloud-rain', description: '冻雨' },
-                57: { icon: 'fa-cloud-rain', description: '强冻雨' },
                 61: { icon: 'fa-cloud-rain', description: '小雨' },
                 63: { icon: 'fa-cloud-rain', description: '中雨' },
                 65: { icon: 'fa-cloud-showers-heavy', description: '大雨' },
-                66: { icon: 'fa-cloud-rain', description: '冻雨' },
-                67: { icon: 'fa-cloud-showers-heavy', description: '强冻雨' },
                 71: { icon: 'fa-snowflake', description: '小雪' },
                 73: { icon: 'fa-snowflake', description: '中雪' },
                 75: { icon: 'fa-snowflake', description: '大雪' },
-                77: { icon: 'fa-snowflake', description: '雪粒' },
                 80: { icon: 'fa-cloud-rain', description: '阵雨' },
                 81: { icon: 'fa-cloud-rain', description: '中阵雨' },
                 82: { icon: 'fa-cloud-showers-heavy', description: '强阵雨' },
@@ -1940,7 +1897,6 @@
                 96: { icon: 'fa-bolt', description: '雷雨伴冰雹' },
                 99: { icon: 'fa-bolt', description: '强雷雨' }
             };
-
             return weatherMap[code] || { icon: 'fa-cloud-sun', description: '未知' };
         }
 
@@ -2033,7 +1989,7 @@
             modal.style.display = 'flex';
         }
 
-        // ==================== 初始化设置控件（增强版，添加功率参数）====================
+        // ==================== 初始化设置控件 ====================
         function initSettingsControls(deviceType, deviceId, isOn, temperature, humidity, speed, mode, direction, powerValue) {
             switch(deviceType) {
                 case 'light':
@@ -2063,7 +2019,6 @@
             }
         }
 
-        // 空调设置初始化（增强版，添加功率显示）
         function initAcSettings(deviceId, isOn, temperature, mode, powerValue) {
             const toggle = document.getElementById('acPowerToggle');
             const status = document.getElementById('acPowerStatus');
@@ -2071,7 +2026,7 @@
             const tempVal = document.getElementById('tempValue');
             const modeSelect = document.getElementById('acMode');
 
-            // 添加功率显示（如果模板中没有，可以动态添加）
+            // 添加功率显示
             const settingsForm = document.querySelector('#settingsContent .settings-form');
             if (settingsForm && !document.getElementById('currentPowerDisplay')) {
                 const powerDiv = document.createElement('div');
@@ -2149,68 +2104,6 @@
             }
         }
 
-        // 温度传感器设置初始化（增强版）
-        function initTempSensorSettings(temperature) {
-            const tempDisplay = document.getElementById('currentTempDisplay');
-            if (tempDisplay) {
-                tempDisplay.textContent = temperature ? temperature.toFixed(1) : '--';
-            }
-        }
-
-        // 湿度传感器设置初始化（增强版）
-        function initHumiditySensorSettings(humidity) {
-            const humidityDisplay = document.getElementById('currentHumidityDisplay');
-            if (humidityDisplay) {
-                humidityDisplay.textContent = humidity || '--';
-            }
-        }
-
-        // 电机设置初始化（增强版）
-        function initMotorSettings(deviceId, direction) {
-            const forwardBtn = document.getElementById('motorForward');
-            const reverseBtn = document.getElementById('motorReverse');
-            const stopBtn = document.getElementById('motorStop');
-            const directionDisplay = document.getElementById('motorDirectionDisplay');
-            const speedInput = document.getElementById('motorSpeed');
-            const speedVal = document.getElementById('motorSpeedValue');
-
-            if (directionDisplay) {
-                directionDisplay.textContent = direction === 'forward' ? '正转' : direction === 'reverse' ? '反转' : '停止';
-            }
-
-            if (forwardBtn) {
-                forwardBtn.addEventListener('click', function() {
-                    directionDisplay.textContent = '正转';
-                    sendDeviceCommand(deviceId, 'set_direction', { direction: 'forward' });
-                });
-            }
-
-            if (reverseBtn) {
-                reverseBtn.addEventListener('click', function() {
-                    directionDisplay.textContent = '反转';
-                    sendDeviceCommand(deviceId, 'set_direction', { direction: 'reverse' });
-                });
-            }
-
-            if (stopBtn) {
-                stopBtn.addEventListener('click', function() {
-                    directionDisplay.textContent = '停止';
-                    sendDeviceCommand(deviceId, 'set_direction', { direction: 'stop' });
-                });
-            }
-
-            if (speedInput && speedVal) {
-                speedInput.addEventListener('input', function() {
-                    speedVal.textContent = this.value + ' rpm';
-                });
-
-                speedInput.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_speed', { speed: parseInt(this.value) });
-                });
-            }
-        }
-
-        // 灯光设置初始化（增强版）
         function initLightSettings(deviceId, isOn) {
             const toggle = document.getElementById('lightPowerToggle');
             const status = document.getElementById('lightPowerStatus');
@@ -2242,7 +2135,6 @@
             }
         }
 
-        // 门锁设置初始化（增强版）
         function initLockSettings(deviceId, isOn) {
             const toggle = document.getElementById('lockToggle');
             const status = document.getElementById('lockStatus');
@@ -2267,7 +2159,6 @@
             }
         }
 
-        // 摄像头设置初始化（增强版）
         function initCameraSettings(deviceId, isOn) {
             const toggle = document.getElementById('cameraPowerToggle');
             const status = document.getElementById('cameraPowerStatus');
@@ -2287,7 +2178,6 @@
             }
         }
 
-        // 风扇设置初始化（增强版）
         function initFanSettings(deviceId, isOn, speed) {
             const toggle = document.getElementById('fanPowerToggle');
             const status = document.getElementById('fanPowerStatus');
@@ -2322,222 +2212,6 @@
             }
         }
 
-        // ==================== 初始化设置控件 ====================
-        function initSettingsControls(deviceType, deviceId, isOn, temperature, humidity, speed, mode, direction) {
-            switch(deviceType) {
-                case 'light':
-                    initLightSettings(deviceId, isOn);
-                    break;
-                case 'ac':
-                    initAcSettings(deviceId, isOn, temperature, mode);
-                    break;
-                case 'lock':
-                    initLockSettings(deviceId, isOn);
-                    break;
-                case 'camera':
-                    initCameraSettings(deviceId, isOn);
-                    break;
-                case 'fan':
-                    initFanSettings(deviceId, isOn, speed);
-                    break;
-                case 'temp-sensor':
-                    initTempSensorSettings(temperature);
-                    break;
-                case 'humidity-sensor':
-                    initHumiditySensorSettings(humidity);
-                    break;
-                case 'motor':
-                    initMotorSettings(deviceId, direction);
-                    break;
-            }
-        }
-
-        // 灯光设置初始化
-        function initLightSettings(deviceId, isOn) {
-            const toggle = document.getElementById('lightPowerToggle');
-            const status = document.getElementById('lightPowerStatus');
-            const brightness = document.getElementById('lightBrightness');
-            const brightnessVal = document.getElementById('brightnessValue');
-
-            if (toggle) {
-                toggle.classList.toggle('active', isOn);
-                toggle.classList.toggle('inactive', !isOn);
-                status.textContent = isOn ? '开启' : '关闭';
-
-                toggle.addEventListener('click', function() {
-                    const newState = !this.classList.contains('active');
-                    this.classList.toggle('active', newState);
-                    this.classList.toggle('inactive', !newState);
-                    status.textContent = newState ? '开启' : '关闭';
-
-                    sendDeviceCommand(deviceId, 'set_power', { isOn: newState });
-                });
-            }
-
-            if (brightness && brightnessVal) {
-                brightness.addEventListener('input', function() {
-                    brightnessVal.textContent = this.value + '%';
-                });
-
-                brightness.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_brightness', { brightness: parseInt(this.value) });
-                });
-            }
-        }
-
-        // 空调设置初始化
-        function initAcSettings(deviceId, isOn, temperature, mode) {
-            const toggle = document.getElementById('acPowerToggle');
-            const status = document.getElementById('acPowerStatus');
-            const tempInput = document.getElementById('acTemperature');
-            const tempVal = document.getElementById('tempValue');
-            const modeSelect = document.getElementById('acMode');
-
-            if (toggle) {
-                toggle.classList.toggle('active', isOn);
-                toggle.classList.toggle('inactive', !isOn);
-                status.textContent = isOn ? '开启' : '关闭';
-
-                toggle.addEventListener('click', function() {
-                    const newState = !this.classList.contains('active');
-                    this.classList.toggle('active', newState);
-                    this.classList.toggle('inactive', !newState);
-                    status.textContent = newState ? '开启' : '关闭';
-                    sendDeviceCommand(deviceId, 'set_power', { isOn: newState });
-                });
-            }
-
-            if (tempInput && tempVal) {
-                tempInput.value = temperature || 24;
-                tempVal.textContent = (temperature || 24) + '°C';
-
-                tempInput.addEventListener('input', function() {
-                    tempVal.textContent = this.value + '°C';
-                });
-
-                tempInput.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_temperature', { temperature: parseFloat(this.value) });
-                });
-            }
-
-            if (modeSelect) {
-                modeSelect.value = mode || 'cool';
-                modeSelect.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_mode', { mode: this.value });
-                });
-            }
-
-            const swingVertical = document.getElementById('acSwingVertical');
-            const swingHorizontal = document.getElementById('acSwingHorizontal');
-            const light = document.getElementById('acLight');
-            const quiet = document.getElementById('acQuiet');
-
-            if (swingVertical) {
-                swingVertical.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_swing_vertical', { enabled: this.checked });
-                });
-            }
-
-            if (swingHorizontal) {
-                swingHorizontal.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_swing_horizontal', { enabled: this.checked });
-                });
-            }
-
-            if (light) {
-                light.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_light', { enabled: this.checked });
-                });
-            }
-
-            if (quiet) {
-                quiet.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_quiet', { enabled: this.checked });
-                });
-            }
-        }
-
-        // 门锁设置初始化
-        function initLockSettings(deviceId, isOn) {
-            const toggle = document.getElementById('lockToggle');
-            const status = document.getElementById('lockStatus');
-
-            if (toggle) {
-                toggle.classList.toggle('active', isOn);
-                toggle.classList.toggle('inactive', !isOn);
-                status.textContent = isOn ? '已上锁' : '未上锁';
-
-                toggle.addEventListener('click', function() {
-                    const newState = !this.classList.contains('active');
-                    this.classList.toggle('active', newState);
-                    this.classList.toggle('inactive', !newState);
-                    status.textContent = newState ? '已上锁' : '未上锁';
-
-                    if (newState) {
-                        sendDeviceCommand(deviceId, 'lock', {});
-                    } else {
-                        sendDeviceCommand(deviceId, 'unlock', {});
-                    }
-                });
-            }
-        }
-
-        // 摄像头设置初始化
-        function initCameraSettings(deviceId, isOn) {
-            const toggle = document.getElementById('cameraPowerToggle');
-            const status = document.getElementById('cameraPowerStatus');
-
-            if (toggle) {
-                toggle.classList.toggle('active', isOn);
-                toggle.classList.toggle('inactive', !isOn);
-                status.textContent = isOn ? '开启' : '关闭';
-
-                toggle.addEventListener('click', function() {
-                    const newState = !this.classList.contains('active');
-                    this.classList.toggle('active', newState);
-                    this.classList.toggle('inactive', !newState);
-                    status.textContent = newState ? '开启' : '关闭';
-                    sendDeviceCommand(deviceId, 'set_power', { isOn: newState });
-                });
-            }
-        }
-
-        // 风扇设置初始化
-        function initFanSettings(deviceId, isOn, speed) {
-            const toggle = document.getElementById('fanPowerToggle');
-            const status = document.getElementById('fanPowerStatus');
-            const speedInput = document.getElementById('fanSpeed');
-            const speedVal = document.getElementById('fanSpeedValue');
-
-            if (toggle) {
-                toggle.classList.toggle('active', isOn);
-                toggle.classList.toggle('inactive', !isOn);
-                status.textContent = isOn ? '开启' : '关闭';
-
-                toggle.addEventListener('click', function() {
-                    const newState = !this.classList.contains('active');
-                    this.classList.toggle('active', newState);
-                    this.classList.toggle('inactive', !newState);
-                    status.textContent = newState ? '开启' : '关闭';
-                    sendDeviceCommand(deviceId, 'set_power', { isOn: newState });
-                });
-            }
-
-            if (speedInput && speedVal) {
-                speedInput.value = speed || 3;
-                speedVal.textContent = (speed || 3) + '档';
-
-                speedInput.addEventListener('input', function() {
-                    speedVal.textContent = this.value + '档';
-                });
-
-                speedInput.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_speed', { speed: parseInt(this.value) });
-                });
-            }
-        }
-
-        // 温度传感器设置初始化（只读）
         function initTempSensorSettings(temperature) {
             const tempDisplay = document.getElementById('currentTempDisplay');
             if (tempDisplay) {
@@ -2545,7 +2219,6 @@
             }
         }
 
-        // 湿度传感器设置初始化（只读）
         function initHumiditySensorSettings(humidity) {
             const humidityDisplay = document.getElementById('currentHumidityDisplay');
             if (humidityDisplay) {
@@ -2553,7 +2226,6 @@
             }
         }
 
-        // 电机设置初始化
         function initMotorSettings(deviceId, direction) {
             const forwardBtn = document.getElementById('motorForward');
             const reverseBtn = document.getElementById('motorReverse');
@@ -2861,30 +2533,28 @@
                 let humidity = null;
                 let motorSpeed = null;
 
+                // 从设备类型数据中获取图标
+                const selectedType = deviceTypeData.find(t => t.typeId === deviceType);
+                if (selectedType) {
+                    icon = selectedType.icon;
+                }
+
                 switch(deviceType) {
-                    case 'light': icon = 'fa-lightbulb'; break;
-                    case 'ac': icon = 'fa-wind'; break;
-                    case 'lock': icon = 'fa-door-open'; break;
-                    case 'camera': icon = 'fa-camera'; break;
-                    case 'fan': icon = 'fa-fan'; break;
                     case 'temp-sensor':
-                        icon = 'fa-thermometer-half';
                         temperature = parseFloat(document.getElementById('sensorTemperature').value);
                         break;
                     case 'humidity-sensor':
-                        icon = 'fa-tint';
                         humidity = parseInt(document.getElementById('sensorHumidity').value);
                         break;
                     case 'motor':
-                        icon = 'fa-cogs';
                         motorSpeed = parseInt(document.getElementById('motorSpeed').value);
                         break;
                 }
 
                 const deviceData = {
                     name: document.getElementById('deviceName').value,
-                    room: document.getElementById('deviceRoom').value,
-                    type: deviceType,
+                    roomId: document.getElementById('deviceRoom').value,
+                    typeId: deviceType,
                     icon: icon,
                     power: document.getElementById('devicePower').value,
                     isOn: document.getElementById('deviceStatus').value === 'on',

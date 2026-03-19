@@ -5,6 +5,8 @@ using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
 using SmartHomeDashboard.Hubs;
 using SmartHomeDashboard.Models;
+using SmartHomeDashboard.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace SmartHomeDashboard.Services
 {
@@ -14,11 +16,11 @@ namespace SmartHomeDashboard.Services
         private readonly IConfiguration _configuration;
         private readonly DeviceDataService _deviceDataService;
         private readonly IHubContext<DeviceHub> _hubContext;
+        private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
         private TcpListener? _tcpListener;
         private bool _isRunning;
         private readonly Dictionary<string, TcpClientInfo> _connectedClients;
         private readonly Dictionary<string, Func<TcpMessage, Task>> _messageHandlers;
-        private readonly Dictionary<string, int> _deviceSequenceCounters;
         private Task? _serverTask;
         private CancellationTokenSource? _cancellationTokenSource;
         private Timer? _heartbeatCheckTimer;
@@ -33,15 +35,16 @@ namespace SmartHomeDashboard.Services
             ILogger<TcpServerService> logger,
             IConfiguration configuration,
             DeviceDataService deviceDataService,
-            IHubContext<DeviceHub> hubContext)
+            IHubContext<DeviceHub> hubContext,
+            IDbContextFactory<AppDbContext> dbContextFactory)
         {
             _logger = logger;
             _configuration = configuration;
             _deviceDataService = deviceDataService;
             _hubContext = hubContext;
+            _dbContextFactory = dbContextFactory;
             _connectedClients = new Dictionary<string, TcpClientInfo>();
             _messageHandlers = new Dictionary<string, Func<TcpMessage, Task>>();
-            _deviceSequenceCounters = new Dictionary<string, int>();
 
             if (int.TryParse(_configuration["TcpSettings:HeartbeatTimeout"], out var timeout))
             {
@@ -51,8 +54,12 @@ namespace SmartHomeDashboard.Services
             RegisterDefaultHandlers();
         }
 
-        private string GenerateDeviceId(string deviceType, string room)
+        // ==================== 设备ID生成 ====================
+
+        private async Task<string> GenerateDeviceIdAsync(string deviceType, string room)
         {
+            using var context = await _dbContextFactory.CreateDbContextAsync();
+
             var typeAbbr = deviceType.ToLower() switch
             {
                 "fan" => "fan",
@@ -79,20 +86,20 @@ namespace SmartHomeDashboard.Services
                 _ => "unk"
             };
 
-            var counterKey = $"{typeAbbr}-{roomAbbr}";
+            // 从数据库获取该房间该类型的最大编号
+            var existingDevices = await context.Devices
+                .Where(d => d.RoomIdentifier == room && d.TypeIdentifier == deviceType)
+                .ToListAsync();
 
-            if (!_deviceSequenceCounters.ContainsKey(counterKey))
-            {
-                _deviceSequenceCounters[counterKey] = 1;
-            }
-            else
-            {
-                _deviceSequenceCounters[counterKey]++;
-            }
+            int maxNumber = existingDevices
+                .Select(d => int.TryParse(d.DeviceNumber, out int num) ? num : 0)
+                .DefaultIfEmpty(0)
+                .Max();
 
-            var sequence = _deviceSequenceCounters[counterKey].ToString("D3");
+            int sequence = maxNumber + 1;
+            var sequenceStr = sequence.ToString("D3");
 
-            return $"{typeAbbr}-{roomAbbr}-{sequence}";
+            return $"{typeAbbr}-{roomAbbr}-{sequenceStr}";
         }
 
         private (string type, string room, int sequence) ParseDeviceId(string deviceId)
@@ -112,6 +119,8 @@ namespace SmartHomeDashboard.Services
 
             return ("unknown", "unknown", 0);
         }
+
+        // ==================== 消息验证 ====================
 
         private bool ValidateRegisterMessage(RegisterMessage message, out string error)
         {
@@ -160,6 +169,8 @@ namespace SmartHomeDashboard.Services
             return true;
         }
 
+        // ==================== 服务生命周期 ====================
+
         public Task StartAsync(CancellationToken cancellationToken)
         {
             _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -168,6 +179,39 @@ namespace SmartHomeDashboard.Services
             _heartbeatCheckTimer = new Timer(CheckHeartbeats, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
 
             return Task.CompletedTask;
+        }
+
+        public async Task StopAsync(CancellationToken cancellationToken)
+        {
+            _isRunning = false;
+            _cancellationTokenSource?.Cancel();
+
+            _heartbeatCheckTimer?.Change(Timeout.Infinite, 0);
+            _heartbeatCheckTimer?.Dispose();
+
+            try
+            {
+                if (_serverTask != null)
+                {
+                    await _serverTask.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+                }
+            }
+            catch (TimeoutException)
+            {
+                _logger.LogWarning("TCP服务器停止超时");
+            }
+
+            _tcpListener?.Stop();
+
+            foreach (var client in _connectedClients.Values)
+            {
+                try
+                {
+                    client.Client?.Close();
+                }
+                catch { }
+            }
+            _connectedClients.Clear();
         }
 
         private async Task RunServerAsync(CancellationToken cancellationToken)
@@ -213,38 +257,7 @@ namespace SmartHomeDashboard.Services
             }
         }
 
-        public async Task StopAsync(CancellationToken cancellationToken)
-        {
-            _isRunning = false;
-            _cancellationTokenSource?.Cancel();
-
-            _heartbeatCheckTimer?.Change(Timeout.Infinite, 0);
-            _heartbeatCheckTimer?.Dispose();
-
-            try
-            {
-                if (_serverTask != null)
-                {
-                    await _serverTask.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
-                }
-            }
-            catch (TimeoutException)
-            {
-                _logger.LogWarning("TCP服务器停止超时");
-            }
-
-            _tcpListener?.Stop();
-
-            foreach (var client in _connectedClients.Values)
-            {
-                try
-                {
-                    client.Client?.Close();
-                }
-                catch { }
-            }
-            _connectedClients.Clear();
-        }
+        // ==================== 心跳检查 ====================
 
         private async void CheckHeartbeats(object? state)
         {
@@ -328,7 +341,7 @@ namespace SmartHomeDashboard.Services
         {
             try
             {
-                var allDevices = _deviceDataService.GetAllDevices();
+                var allDevices = await _deviceDataService.GetAllDevicesAsync();
                 var deviceIdParts = deviceId?.Split('-');
 
                 if (deviceIdParts != null && deviceIdParts.Length == 3)
@@ -362,18 +375,18 @@ namespace SmartHomeDashboard.Services
                     };
 
                     var targetDevice = allDevices.FirstOrDefault(d =>
-                        d.Type == targetType && d.Room == targetRoom);
+                        d.TypeIdentifier == targetType && d.RoomIdentifier == targetRoom);
 
                     if (targetDevice != null && targetDevice.IsOn && targetDevice.StatusText != "离线")
                     {
                         targetDevice.IsOn = false;
                         targetDevice.StatusText = "离线";
-                        _deviceDataService.UpdateDeviceStatus(targetDevice.Id, false, "离线");
+                        await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, false, "离线");
                         _logger.LogInformation($"已更新设备 {targetDevice.Name} 状态为离线（心跳超时）");
                     }
                 }
 
-                var updatedDevices = _deviceDataService.GetAllDevices();
+                var updatedDevices = await _deviceDataService.GetAllDevicesAsync();
                 await _hubContext.Clients.All.SendAsync("DevicesUpdated", updatedDevices);
             }
             catch (Exception ex)
@@ -381,6 +394,8 @@ namespace SmartHomeDashboard.Services
                 _logger.LogError(ex, $"更新设备 {deviceId} 离线状态失败");
             }
         }
+
+        // ==================== 客户端连接处理 ====================
 
         private async Task HandleClientAsync(TcpClient client)
         {
@@ -617,6 +632,8 @@ namespace SmartHomeDashboard.Services
             };
         }
 
+        // ==================== 消息处理器 ====================
+
         private async Task HandleRegisterAsync(TcpMessage message)
         {
             try
@@ -658,7 +675,7 @@ namespace SmartHomeDashboard.Services
                     deviceRoom = "discovered";
                 }
 
-                var deviceId = GenerateDeviceId(deviceType, deviceRoom);
+                var deviceId = await GenerateDeviceIdAsync(deviceType, deviceRoom);
 
                 var clientInfo = _connectedClients.Values.FirstOrDefault(c => c.IpAddress == registerData.IpAddress);
 
@@ -711,7 +728,7 @@ namespace SmartHomeDashboard.Services
 
                 OnDeviceConnected?.Invoke(this, tcpDevice);
 
-                var existingDevices = _deviceDataService.GetAllDevices();
+                var existingDevices = await _deviceDataService.GetAllDevicesAsync();
                 var exists = existingDevices.Any(d => d.Name == tcpDevice.DeviceName);
 
                 if (!exists)
@@ -742,21 +759,21 @@ namespace SmartHomeDashboard.Services
                         _ => "fa-microchip"
                     };
 
-                    var addModel = new DeviceDataService.DeviceAddModel
+                    var addModel = new DeviceAddModel
                     {
                         Name = registerData.DeviceInfo.Name,
-                        Room = deviceRoom,
-                        Type = dbDeviceType,
+                        RoomId = deviceRoom,
+                        TypeId = dbDeviceType,
                         Icon = icon,
                         Power = "0W",
                         IsOn = true,
                         Progress = 0
                     };
 
-                    _deviceDataService.AddDevice(addModel);
+                    await _deviceDataService.AddDeviceAsync(addModel);
                     _logger.LogInformation($"通过TCP发现并添加新设备: {tcpDevice.DeviceName} (ID: {deviceId})");
 
-                    var updatedDevices = _deviceDataService.GetAllDevices();
+                    var updatedDevices = await _deviceDataService.GetAllDevicesAsync();
                     await _hubContext.Clients.All.SendAsync("DevicesUpdated", updatedDevices);
                 }
                 else
@@ -830,15 +847,10 @@ namespace SmartHomeDashboard.Services
                     if (heartbeatData.DeviceStatus != null && heartbeatData.DeviceStatus.Any())
                     {
                         bool anyDeviceUpdated = false;
-                        var allDevices = _deviceDataService.GetAllDevices();
-
-                        // 创建一个字典来记录心跳中出现的所有设备
-                        var devicesInHeartbeat = new HashSet<string>();
+                        var allDevices = await _deviceDataService.GetAllDevicesAsync();
 
                         foreach (var deviceStatus in heartbeatData.DeviceStatus)
                         {
-                            devicesInHeartbeat.Add(deviceStatus.DeviceId);
-
                             var deviceIdParts = deviceStatus.DeviceId?.Split('-');
                             if (deviceIdParts == null || deviceIdParts.Length != 3)
                             {
@@ -848,7 +860,6 @@ namespace SmartHomeDashboard.Services
 
                             var typeAbbr = deviceIdParts[0];
                             var roomAbbr = deviceIdParts[1];
-                            var sequence = deviceIdParts[2];
 
                             string targetType = typeAbbr switch
                             {
@@ -876,66 +887,15 @@ namespace SmartHomeDashboard.Services
                                 _ => "unknown"
                             };
 
-                            _logger.LogDebug($"尝试匹配设备: ID={deviceStatus.DeviceId}, 类型={targetType}, 房间={targetRoom}");
-
-                            // 查找匹配的设备 - 多种匹配策略
                             var targetDevice = allDevices.FirstOrDefault(d =>
-                                !string.IsNullOrEmpty(d.Name) && d.Name.Contains(deviceStatus.DeviceId));
-
-                            if (targetDevice == null)
-                            {
-                                // 通过类型和房间匹配
-                                targetDevice = allDevices.FirstOrDefault(d =>
-                                    d.Type == targetType && d.Room == targetRoom);
-                            }
-
-                            if (targetDevice == null)
-                            {
-                                // 通过设备名称中的关键词匹配
-                                string roomKeyword = roomAbbr switch
-                                {
-                                    "ent" => "入口",
-                                    "liv" => "客厅",
-                                    "kit" => "厨房",
-                                    "mbd" => "主卧",
-                                    "sbd" => "次卧",
-                                    "bat" => "浴室",
-                                    "din" => "餐厅",
-                                    _ => ""
-                                };
-
-                                string typeKeyword = typeAbbr switch
-                                {
-                                    "motor" => "电机",
-                                    "hum" => "湿度传感器",
-                                    "temp" => "温度传感器",
-                                    "light" => "灯",
-                                    "lock" => "门锁",
-                                    "cam" => "摄像头",
-                                    "fan" => "风扇",
-                                    "motion" => "人体传感器",
-                                    _ => ""
-                                };
-
-                                if (!string.IsNullOrEmpty(roomKeyword) && !string.IsNullOrEmpty(typeKeyword))
-                                {
-                                    targetDevice = allDevices.FirstOrDefault(d =>
-                                        !string.IsNullOrEmpty(d.Name) &&
-                                        d.Name.Contains(roomKeyword) &&
-                                        d.Name.Contains(typeKeyword));
-                                }
-                            }
+                                d.TypeIdentifier == targetType && d.RoomIdentifier == targetRoom);
 
                             if (targetDevice != null)
                             {
-                                _logger.LogDebug($"找到匹配的设备: {targetDevice.Name} (ID: {targetDevice.Id})");
-
                                 bool statusChanged = false;
 
-                                // 根据设备类型处理
-                                if (targetDevice.Type == "temp-sensor")
+                                if (targetDevice.TypeIdentifier == "temp-sensor")
                                 {
-                                    // 温度传感器特殊处理
                                     bool wasOnline = targetDevice.IsOn && targetDevice.StatusText != "离线";
                                     if (wasOnline != deviceStatus.IsOnline)
                                     {
@@ -944,7 +904,6 @@ namespace SmartHomeDashboard.Services
 
                                         if (deviceStatus.IsOnline)
                                         {
-                                            // 设备在线，更新温度值
                                             if (!string.IsNullOrEmpty(deviceStatus.CurrentValue) && deviceStatus.CurrentValue.Contains("°C"))
                                             {
                                                 try
@@ -971,37 +930,32 @@ namespace SmartHomeDashboard.Services
                                             _logger.LogInformation($"温度传感器 {targetDevice.Name} 离线");
                                         }
 
-                                        _deviceDataService.UpdateDeviceStatus(targetDevice.Id, deviceStatus.IsOnline, targetDevice.StatusText);
+                                        await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, deviceStatus.IsOnline, targetDevice.StatusText);
                                         if (targetDevice.Temperature.HasValue)
                                         {
-                                            _deviceDataService.UpdateDeviceTemperature(targetDevice.Id, targetDevice.Temperature.Value);
+                                            await _deviceDataService.UpdateDeviceTemperatureAsync(targetDevice.Id, targetDevice.Temperature.Value);
                                         }
                                     }
-                                    else if (deviceStatus.IsOnline)
+                                    else if (deviceStatus.IsOnline && !string.IsNullOrEmpty(deviceStatus.CurrentValue) && deviceStatus.CurrentValue.Contains("°C"))
                                     {
-                                        // 状态没变但需要更新温度值
-                                        if (!string.IsNullOrEmpty(deviceStatus.CurrentValue) && deviceStatus.CurrentValue.Contains("°C"))
+                                        try
                                         {
-                                            try
+                                            double temp = double.Parse(deviceStatus.CurrentValue.Replace("°C", "").Trim());
+                                            if (targetDevice.Temperature != temp)
                                             {
-                                                double temp = double.Parse(deviceStatus.CurrentValue.Replace("°C", "").Trim());
-                                                if (targetDevice.Temperature != temp)
-                                                {
-                                                    targetDevice.Temperature = temp;
-                                                    targetDevice.StatusText = $"温度 {temp:F1}°C";
-                                                    _deviceDataService.UpdateDeviceTemperature(targetDevice.Id, temp);
-                                                    _deviceDataService.UpdateDeviceStatus(targetDevice.Id, true, targetDevice.StatusText);
-                                                    statusChanged = true;
-                                                    _logger.LogInformation($"温度传感器 {targetDevice.Name} 温度更新: {temp}°C");
-                                                }
+                                                targetDevice.Temperature = temp;
+                                                targetDevice.StatusText = $"温度 {temp:F1}°C";
+                                                await _deviceDataService.UpdateDeviceTemperatureAsync(targetDevice.Id, temp);
+                                                await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, true, targetDevice.StatusText);
+                                                statusChanged = true;
+                                                _logger.LogInformation($"温度传感器 {targetDevice.Name} 温度更新: {temp}°C");
                                             }
-                                            catch { }
                                         }
+                                        catch { }
                                     }
                                 }
                                 else
                                 {
-                                    // 其他设备类型的处理
                                     bool wasOnline = targetDevice.IsOn && targetDevice.StatusText != "离线";
                                     if (wasOnline != deviceStatus.IsOnline)
                                     {
@@ -1016,7 +970,7 @@ namespace SmartHomeDashboard.Services
                                             }
                                             else
                                             {
-                                                targetDevice.StatusText = targetDevice.Type switch
+                                                targetDevice.StatusText = targetDevice.TypeIdentifier switch
                                                 {
                                                     "humidity-sensor" => "在线",
                                                     "light" => "开启",
@@ -1029,126 +983,109 @@ namespace SmartHomeDashboard.Services
                                                     _ => "在线"
                                                 };
                                             }
-                                            _logger.LogInformation($"设备 {targetDevice.Name} (ID: {deviceStatus.DeviceId}) 通过心跳上线，状态: {targetDevice.StatusText}");
+                                            _logger.LogInformation($"设备 {targetDevice.Name} 通过心跳上线");
                                         }
                                         else
                                         {
                                             targetDevice.StatusText = "离线";
-                                            _logger.LogInformation($"设备 {targetDevice.Name} (ID: {deviceStatus.DeviceId}) 通过心跳离线");
+                                            _logger.LogInformation($"设备 {targetDevice.Name} 通过心跳离线");
                                         }
 
-                                        _deviceDataService.UpdateDeviceStatus(targetDevice.Id, deviceStatus.IsOnline, targetDevice.StatusText);
+                                        await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, deviceStatus.IsOnline, targetDevice.StatusText);
                                     }
                                 }
 
-                                // 更新电量（所有设备都更新电量）
-                                if (deviceStatus.BatteryLevel.HasValue)
+                                if (deviceStatus.BatteryLevel.HasValue && targetDevice.Humidity != deviceStatus.BatteryLevel.Value)
                                 {
-                                    if (targetDevice.Humidity != deviceStatus.BatteryLevel.Value)
-                                    {
-                                        _deviceDataService.UpdateDeviceHumidity(targetDevice.Id, deviceStatus.BatteryLevel.Value);
-                                        _logger.LogInformation($"更新设备 {targetDevice.Name} 电量: {deviceStatus.BatteryLevel}%");
-                                        statusChanged = true;
-                                    }
+                                    await _deviceDataService.UpdateDeviceHumidityAsync(targetDevice.Id, deviceStatus.BatteryLevel.Value);
+                                    _logger.LogInformation($"更新设备 {targetDevice.Name} 电量: {deviceStatus.BatteryLevel}%");
+                                    statusChanged = true;
                                 }
 
-                                // 更新当前值（只有在线设备才更新）
                                 if (!string.IsNullOrEmpty(deviceStatus.CurrentValue) && deviceStatus.IsOnline)
                                 {
-                                    if (targetDevice.Type == "humidity-sensor" && deviceStatus.CurrentValue.Contains("%"))
+                                    if (targetDevice.TypeIdentifier == "humidity-sensor" && deviceStatus.CurrentValue.Contains("%"))
                                     {
                                         try
                                         {
                                             int humidity = int.Parse(deviceStatus.CurrentValue.Replace("%", "").Trim());
                                             if (targetDevice.Humidity != humidity)
                                             {
-                                                _deviceDataService.UpdateDeviceHumidity(targetDevice.Id, humidity);
+                                                await _deviceDataService.UpdateDeviceHumidityAsync(targetDevice.Id, humidity);
                                                 _logger.LogInformation($"更新湿度传感器 {targetDevice.Name}: {humidity}%");
                                                 statusChanged = true;
                                             }
                                         }
                                         catch { }
                                     }
-                                    else if (targetDevice.Type == "light" && (deviceStatus.CurrentValue == "开启" || deviceStatus.CurrentValue == "关闭"))
+                                    else if (targetDevice.TypeIdentifier == "light" && (deviceStatus.CurrentValue == "开启" || deviceStatus.CurrentValue == "关闭"))
                                     {
                                         bool newIsOn = deviceStatus.CurrentValue == "开启";
                                         if (targetDevice.IsOn != newIsOn || targetDevice.StatusText != deviceStatus.CurrentValue)
                                         {
                                             targetDevice.IsOn = newIsOn;
                                             targetDevice.StatusText = deviceStatus.CurrentValue;
-                                            _deviceDataService.UpdateDeviceStatus(targetDevice.Id, targetDevice.IsOn, targetDevice.StatusText);
+                                            await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, targetDevice.IsOn, targetDevice.StatusText);
                                             statusChanged = true;
-                                            _logger.LogInformation($"更新灯光 {targetDevice.Name} 状态: {deviceStatus.CurrentValue}");
                                         }
                                     }
-                                    else if (targetDevice.Type == "lock" && (deviceStatus.CurrentValue == "已上锁" || deviceStatus.CurrentValue == "未上锁"))
+                                    else if (targetDevice.TypeIdentifier == "lock" && (deviceStatus.CurrentValue == "已上锁" || deviceStatus.CurrentValue == "未上锁"))
                                     {
                                         bool newIsOn = deviceStatus.CurrentValue == "已上锁";
                                         if (targetDevice.IsOn != newIsOn || targetDevice.StatusText != deviceStatus.CurrentValue)
                                         {
                                             targetDevice.IsOn = newIsOn;
                                             targetDevice.StatusText = deviceStatus.CurrentValue;
-                                            _deviceDataService.UpdateDeviceStatus(targetDevice.Id, targetDevice.IsOn, targetDevice.StatusText);
+                                            await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, targetDevice.IsOn, targetDevice.StatusText);
                                             statusChanged = true;
-                                            _logger.LogInformation($"更新门锁 {targetDevice.Name} 状态: {deviceStatus.CurrentValue}");
                                         }
                                     }
-                                    else if (targetDevice.Type == "motor" && deviceStatus.CurrentValue == "停止")
+                                    else if (targetDevice.TypeIdentifier == "motor")
                                     {
-                                        if (targetDevice.IsOn)
+                                        if (deviceStatus.CurrentValue == "停止" && targetDevice.IsOn)
                                         {
                                             targetDevice.IsOn = false;
                                             targetDevice.StatusText = "停止";
                                             targetDevice.Direction = "stop";
-                                            _deviceDataService.UpdateDeviceStatus(targetDevice.Id, false, "停止");
-                                            _deviceDataService.UpdateDeviceDirection(targetDevice.Id, "stop");
+                                            await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, false, "停止");
+                                            await _deviceDataService.UpdateDeviceDirectionAsync(targetDevice.Id, "stop");
                                             statusChanged = true;
-                                            _logger.LogInformation($"更新电机 {targetDevice.Name} 状态: 停止");
                                         }
-                                    }
-                                    else if (targetDevice.Type == "motor" && deviceStatus.CurrentValue == "正转")
-                                    {
-                                        if (!targetDevice.IsOn || targetDevice.StatusText != "正转")
+                                        else if (deviceStatus.CurrentValue == "正转" && (!targetDevice.IsOn || targetDevice.StatusText != "正转"))
                                         {
                                             targetDevice.IsOn = true;
                                             targetDevice.StatusText = "正转";
                                             targetDevice.Direction = "forward";
-                                            _deviceDataService.UpdateDeviceStatus(targetDevice.Id, true, "正转");
-                                            _deviceDataService.UpdateDeviceDirection(targetDevice.Id, "forward");
+                                            await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, true, "正转");
+                                            await _deviceDataService.UpdateDeviceDirectionAsync(targetDevice.Id, "forward");
                                             statusChanged = true;
-                                            _logger.LogInformation($"更新电机 {targetDevice.Name} 状态: 正转");
                                         }
-                                    }
-                                    else if (targetDevice.Type == "motor" && deviceStatus.CurrentValue == "反转")
-                                    {
-                                        if (!targetDevice.IsOn || targetDevice.StatusText != "反转")
+                                        else if (deviceStatus.CurrentValue == "反转" && (!targetDevice.IsOn || targetDevice.StatusText != "反转"))
                                         {
                                             targetDevice.IsOn = true;
                                             targetDevice.StatusText = "反转";
                                             targetDevice.Direction = "reverse";
-                                            _deviceDataService.UpdateDeviceStatus(targetDevice.Id, true, "反转");
-                                            _deviceDataService.UpdateDeviceDirection(targetDevice.Id, "reverse");
+                                            await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, true, "反转");
+                                            await _deviceDataService.UpdateDeviceDirectionAsync(targetDevice.Id, "reverse");
                                             statusChanged = true;
-                                            _logger.LogInformation($"更新电机 {targetDevice.Name} 状态: 反转");
                                         }
                                     }
-                                    else if (targetDevice.Type == "fan" && deviceStatus.CurrentValue.StartsWith("风速"))
+                                    else if (targetDevice.TypeIdentifier == "fan" && deviceStatus.CurrentValue.StartsWith("风速"))
                                     {
                                         try
                                         {
                                             int speed = int.Parse(deviceStatus.CurrentValue.Replace("风速", "").Replace("档", "").Trim());
                                             if (targetDevice.MotorSpeed != speed)
                                             {
-                                                _deviceDataService.UpdateDeviceMotorSpeed(targetDevice.Id, speed);
+                                                await _deviceDataService.UpdateDeviceMotorSpeedAsync(targetDevice.Id, speed);
                                                 _logger.LogInformation($"更新风扇 {targetDevice.Name} 转速: {speed}档");
                                                 statusChanged = true;
                                             }
                                         }
                                         catch { }
                                     }
-                                    else if (targetDevice.Type == "ac" && !deviceStatus.CurrentValue.Contains("°C") && deviceStatus.CurrentValue != "关闭")
+                                    else if (targetDevice.TypeIdentifier == "ac" && !deviceStatus.CurrentValue.Contains("°C") && deviceStatus.CurrentValue != "关闭")
                                     {
-                                        // 处理空调模式
                                         string mode = deviceStatus.CurrentValue switch
                                         {
                                             "制冷" => "cool",
@@ -1161,7 +1098,7 @@ namespace SmartHomeDashboard.Services
 
                                         if (targetDevice.Mode != mode)
                                         {
-                                            _deviceDataService.UpdateDeviceMode(targetDevice.Id, mode);
+                                            await _deviceDataService.UpdateDeviceModeAsync(targetDevice.Id, mode);
                                             _logger.LogInformation($"更新空调 {targetDevice.Name} 模式: {deviceStatus.CurrentValue}");
                                             statusChanged = true;
                                         }
@@ -1173,19 +1110,11 @@ namespace SmartHomeDashboard.Services
                                     anyDeviceUpdated = true;
                                 }
                             }
-                            else
-                            {
-                                _logger.LogWarning($"心跳中未找到匹配的设备: {deviceStatus.DeviceId} (类型={targetType}, 房间={targetRoom})");
-
-                                var availableDevices = allDevices.Select(d =>
-                                    $"ID={d.Id}, 名称={d.Name}, 类型={d.Type}, 房间={d.Room}").ToList();
-                                _logger.LogDebug($"可用设备列表: {string.Join("; ", availableDevices)}");
-                            }
                         }
 
                         if (anyDeviceUpdated)
                         {
-                            var updatedDevices = _deviceDataService.GetAllDevices();
+                            var updatedDevices = await _deviceDataService.GetAllDevicesAsync();
                             await _hubContext.Clients.All.SendAsync("DevicesUpdated", updatedDevices);
                         }
                     }
@@ -1203,17 +1132,12 @@ namespace SmartHomeDashboard.Services
                         }
                     };
 
-                    // 只有在有活动连接时才发送响应
                     if (_connectedClients.ContainsKey(message.DeviceId) &&
                         _connectedClients[message.DeviceId].Client != null &&
                         _connectedClients[message.DeviceId].Client.Connected)
                     {
                         await SendToClientAsync(message.DeviceId, response);
                         _logger.LogDebug($"心跳响应已发送到设备 {message.DeviceId}");
-                    }
-                    else
-                    {
-                        _logger.LogDebug($"设备 {message.DeviceId} 没有活动连接，跳过心跳响应");
                     }
                 }
             }
@@ -1238,7 +1162,7 @@ namespace SmartHomeDashboard.Services
                 {
                     _logger.LogInformation($"设备 {message.DeviceId} 状态: 在线={statusData.IsOnline}, 电量={statusData.BatteryLevel}%, IP={statusData.IpAddress}");
 
-                    var allDevices = _deviceDataService.GetAllDevices();
+                    var allDevices = await _deviceDataService.GetAllDevicesAsync();
                     var deviceIdParts = message.DeviceId?.Split('-');
 
                     if (deviceIdParts != null && deviceIdParts.Length == 3)
@@ -1272,7 +1196,7 @@ namespace SmartHomeDashboard.Services
                         };
 
                         var targetDevice = allDevices.FirstOrDefault(d =>
-                            d.Type == targetType && d.Room == targetRoom);
+                            d.TypeIdentifier == targetType && d.RoomIdentifier == targetRoom);
 
                         if (targetDevice != null)
                         {
@@ -1285,12 +1209,12 @@ namespace SmartHomeDashboard.Services
                                     targetDevice.IsOn = true;
                                     targetDevice.StatusText = "在线";
 
-                                    if (targetDevice.Type == "temp-sensor" && targetDevice.Temperature.HasValue)
+                                    if (targetDevice.TypeIdentifier == "temp-sensor" && targetDevice.Temperature.HasValue)
                                     {
                                         targetDevice.StatusText = $"温度 {targetDevice.Temperature.Value:F1}°C";
                                     }
 
-                                    _deviceDataService.UpdateDeviceStatus(targetDevice.Id, true, targetDevice.StatusText);
+                                    await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, true, targetDevice.StatusText);
                                     _logger.LogInformation($"设备 {targetDevice.Name} 已上线");
                                 }
                             }
@@ -1300,18 +1224,18 @@ namespace SmartHomeDashboard.Services
                                 {
                                     targetDevice.IsOn = false;
                                     targetDevice.StatusText = "离线";
-                                    _deviceDataService.UpdateDeviceStatus(targetDevice.Id, false, "离线");
+                                    await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, false, "离线");
                                     _logger.LogInformation($"设备 {targetDevice.Name} 已离线 (状态消息)");
                                 }
                             }
 
                             if (statusData.BatteryLevel.HasValue)
                             {
-                                _deviceDataService.UpdateDeviceHumidity(targetDevice.Id, statusData.BatteryLevel.Value);
+                                await _deviceDataService.UpdateDeviceHumidityAsync(targetDevice.Id, statusData.BatteryLevel.Value);
                                 _logger.LogInformation($"设备 {targetDevice.Name} 电量: {statusData.BatteryLevel}%");
                             }
 
-                            if (targetDevice.Type == "temp-sensor" && statusData.CurrentValue != null)
+                            if (targetDevice.TypeIdentifier == "temp-sensor" && statusData.CurrentValue != null)
                             {
                                 try
                                 {
@@ -1319,7 +1243,7 @@ namespace SmartHomeDashboard.Services
                                     if (currentValue.Contains("°C"))
                                     {
                                         double temp = double.Parse(currentValue.Replace("°C", "").Trim());
-                                        _deviceDataService.UpdateDeviceTemperature(targetDevice.Id, temp);
+                                        await _deviceDataService.UpdateDeviceTemperatureAsync(targetDevice.Id, temp);
                                         _logger.LogInformation($"更新温度传感器: {targetDevice.Name} = {temp}°C");
                                     }
                                 }
@@ -1329,7 +1253,7 @@ namespace SmartHomeDashboard.Services
                                 }
                             }
 
-                            var updatedDevices = _deviceDataService.GetAllDevices();
+                            var updatedDevices = await _deviceDataService.GetAllDevicesAsync();
                             await _hubContext.Clients.All.SendAsync("DevicesUpdated", updatedDevices);
                         }
                     }
@@ -1382,8 +1306,6 @@ namespace SmartHomeDashboard.Services
                     var typeAbbr = deviceIdParts[0];
                     var roomAbbr = deviceIdParts[1];
 
-                    _logger.LogInformation($"解析设备ID: 类型缩写={typeAbbr}, 房间缩写={roomAbbr}");
-
                     string targetType = typeAbbr switch
                     {
                         "hum" => "humidity-sensor",
@@ -1409,27 +1331,27 @@ namespace SmartHomeDashboard.Services
                         _ => "unknown"
                     };
 
-                    var allDevices = _deviceDataService.GetAllDevices();
+                    var allDevices = await _deviceDataService.GetAllDevicesAsync();
 
                     var targetDevice = allDevices.FirstOrDefault(d =>
-                        d.Type == targetType && d.Room == targetRoom);
+                        d.TypeIdentifier == targetType && d.RoomIdentifier == targetRoom);
 
                     if (targetDevice != null)
                     {
                         _logger.LogInformation($"最终匹配的设备: {targetDevice.Name} (ID: {targetDevice.Id})");
 
-                        switch (targetDevice.Type)
+                        switch (targetDevice.TypeIdentifier)
                         {
                             case "temp-sensor":
                                 if (telemetryData?.TemperatureValue.HasValue == true)
                                 {
-                                    _deviceDataService.UpdateDeviceTemperature(targetDevice.Id, telemetryData.TemperatureValue.Value);
+                                    await _deviceDataService.UpdateDeviceTemperatureAsync(targetDevice.Id, telemetryData.TemperatureValue.Value);
                                     dataUpdated = true;
                                     _logger.LogInformation($"更新温度传感器: {targetDevice.Name} = {telemetryData.TemperatureValue}°C");
                                 }
                                 if (telemetryData?.BatteryLevel.HasValue == true)
                                 {
-                                    _deviceDataService.UpdateDeviceHumidity(targetDevice.Id, telemetryData.BatteryLevel.Value);
+                                    await _deviceDataService.UpdateDeviceHumidityAsync(targetDevice.Id, telemetryData.BatteryLevel.Value);
                                     dataUpdated = true;
                                 }
                                 break;
@@ -1437,13 +1359,13 @@ namespace SmartHomeDashboard.Services
                             case "humidity-sensor":
                                 if (telemetryData?.HumidityValue.HasValue == true)
                                 {
-                                    _deviceDataService.UpdateDeviceHumidity(targetDevice.Id, (int)Math.Round(telemetryData.HumidityValue.Value));
+                                    await _deviceDataService.UpdateDeviceHumidityAsync(targetDevice.Id, (int)Math.Round(telemetryData.HumidityValue.Value));
                                     dataUpdated = true;
                                     _logger.LogInformation($"更新湿度传感器: {targetDevice.Name} = {telemetryData.HumidityValue}%");
                                 }
                                 if (telemetryData?.BatteryLevel.HasValue == true)
                                 {
-                                    _deviceDataService.UpdateDeviceHumidity(targetDevice.Id, telemetryData.BatteryLevel.Value);
+                                    await _deviceDataService.UpdateDeviceHumidityAsync(targetDevice.Id, telemetryData.BatteryLevel.Value);
                                     dataUpdated = true;
                                 }
                                 break;
@@ -1451,7 +1373,7 @@ namespace SmartHomeDashboard.Services
                             case "fan":
                                 if (telemetryData?.Speed.HasValue == true)
                                 {
-                                    _deviceDataService.UpdateDeviceMotorSpeed(targetDevice.Id, telemetryData.Speed.Value);
+                                    await _deviceDataService.UpdateDeviceMotorSpeedAsync(targetDevice.Id, telemetryData.Speed.Value);
                                     _logger.LogInformation($"更新风扇转速: {targetDevice.Name} = {telemetryData.Speed}档");
                                     dataUpdated = true;
                                 }
@@ -1459,12 +1381,12 @@ namespace SmartHomeDashboard.Services
                                 {
                                     targetDevice.IsOn = telemetryData.IsOn.Value;
                                     targetDevice.StatusText = telemetryData.IsOn.Value ? $"风速 {telemetryData.Speed ?? 3}档" : "关闭";
-                                    _deviceDataService.UpdateDeviceStatus(targetDevice.Id, telemetryData.IsOn.Value, targetDevice.StatusText);
+                                    await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, telemetryData.IsOn.Value, targetDevice.StatusText);
                                     dataUpdated = true;
                                 }
                                 if (telemetryData?.Power.HasValue == true)
                                 {
-                                    _deviceDataService.UpdateDevicePower(targetDevice.Id, telemetryData.Power.Value);
+                                    await _deviceDataService.UpdateDevicePowerAsync(targetDevice.Id, telemetryData.Power.Value);
                                     dataUpdated = true;
                                 }
                                 break;
@@ -1472,20 +1394,18 @@ namespace SmartHomeDashboard.Services
                             case "motor":
                                 if (!string.IsNullOrEmpty(telemetryData?.Direction))
                                 {
-                                    _deviceDataService.UpdateDeviceDirection(targetDevice.Id, telemetryData.Direction);
+                                    await _deviceDataService.UpdateDeviceDirectionAsync(targetDevice.Id, telemetryData.Direction);
                                     _logger.LogInformation($"更新电机方向: {targetDevice.Name} = {telemetryData.Direction}");
                                     dataUpdated = true;
                                 }
-
                                 if (telemetryData?.Speed.HasValue == true)
                                 {
-                                    _deviceDataService.UpdateDeviceMotorSpeed(targetDevice.Id, telemetryData.Speed.Value);
+                                    await _deviceDataService.UpdateDeviceMotorSpeedAsync(targetDevice.Id, telemetryData.Speed.Value);
                                     dataUpdated = true;
                                 }
-
                                 if (telemetryData?.Power.HasValue == true)
                                 {
-                                    _deviceDataService.UpdateDevicePower(targetDevice.Id, telemetryData.Power.Value);
+                                    await _deviceDataService.UpdateDevicePowerAsync(targetDevice.Id, telemetryData.Power.Value);
                                     dataUpdated = true;
                                 }
                                 break;
@@ -1495,13 +1415,13 @@ namespace SmartHomeDashboard.Services
                                 {
                                     targetDevice.IsOn = telemetryData.IsOn.Value;
                                     targetDevice.StatusText = telemetryData.IsOn.Value ? "开启" : "关闭";
-                                    _deviceDataService.UpdateDeviceStatus(targetDevice.Id, telemetryData.IsOn.Value, targetDevice.StatusText);
+                                    await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, telemetryData.IsOn.Value, targetDevice.StatusText);
                                     _logger.LogInformation($"更新灯光状态: {targetDevice.Name} = {(telemetryData.IsOn.Value ? "开启" : "关闭")}");
                                     dataUpdated = true;
                                 }
                                 if (telemetryData?.Power.HasValue == true)
                                 {
-                                    _deviceDataService.UpdateDevicePower(targetDevice.Id, telemetryData.Power.Value);
+                                    await _deviceDataService.UpdateDevicePowerAsync(targetDevice.Id, telemetryData.Power.Value);
                                     dataUpdated = true;
                                 }
                                 break;
@@ -1511,13 +1431,13 @@ namespace SmartHomeDashboard.Services
                                 {
                                     targetDevice.IsOn = telemetryData.IsOn.Value;
                                     targetDevice.StatusText = telemetryData.IsOn.Value ? "已上锁" : "未上锁";
-                                    _deviceDataService.UpdateDeviceStatus(targetDevice.Id, telemetryData.IsOn.Value, targetDevice.StatusText);
+                                    await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, telemetryData.IsOn.Value, targetDevice.StatusText);
                                     _logger.LogInformation($"更新门锁状态: {targetDevice.Name} = {(telemetryData.IsOn.Value ? "已上锁" : "未上锁")}");
                                     dataUpdated = true;
                                 }
                                 if (telemetryData?.BatteryLevel.HasValue == true)
                                 {
-                                    _deviceDataService.UpdateDeviceHumidity(targetDevice.Id, telemetryData.BatteryLevel.Value);
+                                    await _deviceDataService.UpdateDeviceHumidityAsync(targetDevice.Id, telemetryData.BatteryLevel.Value);
                                     dataUpdated = true;
                                 }
                                 break;
@@ -1527,12 +1447,12 @@ namespace SmartHomeDashboard.Services
                                 {
                                     targetDevice.IsOn = telemetryData.IsOn.Value;
                                     targetDevice.StatusText = telemetryData.IsOn.Value ? "在线" : "离线";
-                                    _deviceDataService.UpdateDeviceStatus(targetDevice.Id, telemetryData.IsOn.Value, targetDevice.StatusText);
+                                    await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, telemetryData.IsOn.Value, targetDevice.StatusText);
                                     dataUpdated = true;
                                 }
                                 if (telemetryData?.Power.HasValue == true)
                                 {
-                                    _deviceDataService.UpdateDevicePower(targetDevice.Id, telemetryData.Power.Value);
+                                    await _deviceDataService.UpdateDevicePowerAsync(targetDevice.Id, telemetryData.Power.Value);
                                     dataUpdated = true;
                                 }
                                 break;
@@ -1540,16 +1460,14 @@ namespace SmartHomeDashboard.Services
                             case "ac":
                                 if (telemetryData?.Mode != null)
                                 {
-                                    _deviceDataService.UpdateDeviceMode(targetDevice.Id, telemetryData.Mode);
+                                    await _deviceDataService.UpdateDeviceModeAsync(targetDevice.Id, telemetryData.Mode);
                                     dataUpdated = true;
                                 }
-
                                 if (telemetryData?.Temperature.HasValue == true)
                                 {
-                                    _deviceDataService.UpdateDeviceAcTemperature(targetDevice.Id, telemetryData.Temperature.Value);
+                                    await _deviceDataService.UpdateDeviceAcTemperatureAsync(targetDevice.Id, telemetryData.Temperature.Value);
                                     dataUpdated = true;
                                 }
-
                                 if (telemetryData?.IsOn.HasValue == true)
                                 {
                                     targetDevice.IsOn = telemetryData.IsOn.Value;
@@ -1570,13 +1488,12 @@ namespace SmartHomeDashboard.Services
                                     {
                                         targetDevice.StatusText = "关闭";
                                     }
-                                    _deviceDataService.UpdateDeviceStatus(targetDevice.Id, telemetryData.IsOn.Value, targetDevice.StatusText);
+                                    await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, telemetryData.IsOn.Value, targetDevice.StatusText);
                                     dataUpdated = true;
                                 }
-
                                 if (telemetryData?.Power.HasValue == true)
                                 {
-                                    _deviceDataService.UpdateDevicePower(targetDevice.Id, telemetryData.Power.Value);
+                                    await _deviceDataService.UpdateDevicePowerAsync(targetDevice.Id, telemetryData.Power.Value);
                                     dataUpdated = true;
                                 }
                                 break;
@@ -1585,7 +1502,7 @@ namespace SmartHomeDashboard.Services
 
                     if (dataUpdated)
                     {
-                        var devices = _deviceDataService.GetAllDevices();
+                        var devices = await _deviceDataService.GetAllDevicesAsync();
                         await _hubContext.Clients.All.SendAsync("DevicesUpdated", devices);
 
                         if (telemetryData != null)
@@ -1681,7 +1598,7 @@ namespace SmartHomeDashboard.Services
 
                 _logger.LogInformation($"设备 {deviceId} 已主动断开连接");
 
-                var allDevices = _deviceDataService.GetAllDevices();
+                var allDevices = await _deviceDataService.GetAllDevicesAsync();
                 var deviceIdParts = deviceId?.Split('-');
 
                 if (deviceIdParts != null && deviceIdParts.Length == 3)
@@ -1715,21 +1632,23 @@ namespace SmartHomeDashboard.Services
                     };
 
                     var targetDevice = allDevices.FirstOrDefault(d =>
-                        d.Type == targetType && d.Room == targetRoom);
+                        d.TypeIdentifier == targetType && d.RoomIdentifier == targetRoom);
 
                     if (targetDevice != null)
                     {
                         targetDevice.IsOn = false;
                         targetDevice.StatusText = "离线";
-                        _deviceDataService.UpdateDeviceStatus(targetDevice.Id, false, "离线");
+                        await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, false, "离线");
                         _logger.LogInformation($"已更新设备 {targetDevice.Name} 状态为离线");
                     }
                 }
 
-                var updatedDevices = _deviceDataService.GetAllDevices();
+                var updatedDevices = await _deviceDataService.GetAllDevicesAsync();
                 await _hubContext.Clients.All.SendAsync("DevicesUpdated", updatedDevices);
             }
         }
+
+        // ==================== 命令发送 ====================
 
         public async Task SendCommandAsync(string deviceId, string command, Dictionary<string, object>? parameters = null)
         {
@@ -1797,6 +1716,8 @@ namespace SmartHomeDashboard.Services
             }
         }
 
+        // ==================== 设备查询 ====================
+
         public List<TcpDevice> GetAllDevices()
         {
             var devices = new List<TcpDevice>();
@@ -1852,6 +1773,8 @@ namespace SmartHomeDashboard.Services
             }
             return null;
         }
+
+        // ==================== 内部类 ====================
 
         private class TcpClientInfo
         {

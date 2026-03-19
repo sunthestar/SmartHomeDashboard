@@ -1,22 +1,19 @@
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using SmartHomeDashboard.Services;
+using SmartHomeDashboard.Models;
+using Microsoft.AspNetCore.Mvc;
 
 namespace SmartHomeDashboard.Pages
 {
     public class IndexModel : PageModel
     {
         private readonly DeviceDataService _deviceService;
+        private readonly RoomService _roomService;
 
-        public IndexModel(DeviceDataService deviceService)
+        public IndexModel(DeviceDataService deviceService, RoomService roomService)
         {
             _deviceService = deviceService;
-        }
-
-        public IActionResult OnGetLogout()
-        {
-            HttpContext.Session.Remove("IsLoggedIn");
-            return RedirectToPage("/Login");
+            _roomService = roomService;
         }
 
         // KPI 数据
@@ -43,7 +40,13 @@ namespace SmartHomeDashboard.Pages
         public int ActiveScenes { get; set; } = 2;
 
         // 设备列表
-        public List<DeviceDataService.DeviceModel> Devices { get; set; } = new List<DeviceDataService.DeviceModel>();
+        public List<DeviceModel> Devices { get; set; } = new List<DeviceModel>();
+
+        // 房间列表
+        public List<RoomModel> Rooms { get; set; } = new List<RoomModel>();
+
+        // 设备类型列表
+        public List<DeviceTypeModel> DeviceTypes { get; set; } = new List<DeviceTypeModel>();
 
         // 监控摄像头列表
         public List<CameraModel> Cameras { get; set; } = new List<CameraModel>
@@ -75,9 +78,17 @@ namespace SmartHomeDashboard.Pages
             new SceneModel { Id = 4, Name = "晚餐模式 (18:00)", Icon = "fa-pizza-slice", IsActive = false, Description = "调暗灯光，播放音乐", Time = "18:00" }
         };
 
-        public void OnGet()
+        // 只保留异步版本的 OnGet
+        public async Task OnGetAsync()
         {
-            Devices = _deviceService.GetAllDevices() ?? new List<DeviceDataService.DeviceModel>();
+            // 获取设备列表
+            Devices = await _deviceService.GetAllDevicesAsync() ?? new List<DeviceModel>();
+
+            // 获取房间列表
+            Rooms = await _roomService.GetAllRoomsAsync() ?? new List<RoomModel>();
+
+            // 获取设备类型列表
+            DeviceTypes = GetDefaultDeviceTypes();
 
             // 重新计算在线设备数量
             OnlineDevices = Devices.Count(d => d.IsOn && d.StatusText != "离线");
@@ -93,13 +104,65 @@ namespace SmartHomeDashboard.Pages
             }
             RealTimePower = totalPower.ToString("F2");
 
+            // 计算平均室温
+            CalculateAverageRoomTemp();
+
+            // 计算平均湿度
+            CalculateAverageHumidity();
+
             // 计算安全设备数量（门锁和摄像头）
-            SecurityDevices = Devices.Count(d => d.Type == "lock" || d.Type == "camera");
+            SecurityDevices = Devices.Count(d => d.TypeIdentifier == "lock" || d.TypeIdentifier == "camera");
 
             // 计算活动场景数量
             ActiveScenes = Scenes.Count(s => s.IsActive);
 
             Console.WriteLine($"Index页面加载，发现 {Devices.Count} 个设备，其中 {OnlineDevices} 个在线");
+        }
+
+        // 删除同步的 OnGet 方法 - 不再需要
+        // public void OnGet() { ... }  // 已删除
+
+        private List<DeviceTypeModel> GetDefaultDeviceTypes()
+        {
+            return new List<DeviceTypeModel>
+            {
+                new DeviceTypeModel { Id = 1, TypeId = "ac", TypeName = "空调", Icon = "fa-wind", Description = "智能空调" },
+                new DeviceTypeModel { Id = 2, TypeId = "light", TypeName = "灯光", Icon = "fa-lightbulb", Description = "智能灯泡" },
+                new DeviceTypeModel { Id = 3, TypeId = "lock", TypeName = "门锁", Icon = "fa-lock", Description = "智能门锁" },
+                new DeviceTypeModel { Id = 4, TypeId = "camera", TypeName = "摄像头", Icon = "fa-camera", Description = "网络摄像头" },
+                new DeviceTypeModel { Id = 5, TypeId = "fan", TypeName = "风扇", Icon = "fa-fan", Description = "智能风扇" },
+                new DeviceTypeModel { Id = 6, TypeId = "temp-sensor", TypeName = "温度传感器", Icon = "fa-thermometer-half", Description = "温度传感器" },
+                new DeviceTypeModel { Id = 7, TypeId = "humidity-sensor", TypeName = "湿度传感器", Icon = "fa-tint", Description = "湿度传感器" },
+                new DeviceTypeModel { Id = 8, TypeId = "motor", TypeName = "电机", Icon = "fa-cogs", Description = "电机设备" }
+            };
+        }
+
+        private void CalculateAverageRoomTemp()
+        {
+            var tempSensors = Devices.Where(d => d.TypeIdentifier == "temp-sensor" && d.Temperature.HasValue).ToList();
+            if (tempSensors.Any())
+            {
+                var avgTemp = tempSensors.Average(d => d.Temperature.Value);
+                AverageTemp = avgTemp.ToString("F1");
+            }
+            else
+            {
+                AverageTemp = "--";
+            }
+        }
+
+        private void CalculateAverageHumidity()
+        {
+            var humiditySensors = Devices.Where(d => d.TypeIdentifier == "humidity-sensor" && d.Humidity.HasValue).ToList();
+            if (humiditySensors.Any())
+            {
+                var avgHumidity = humiditySensors.Average(d => d.Humidity.Value);
+                WaterUsage = avgHumidity.ToString("F0");
+            }
+            else
+            {
+                WaterUsage = "--";
+            }
         }
 
         public class CameraModel

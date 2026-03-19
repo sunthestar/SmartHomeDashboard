@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using SmartHomeDashboard.Services;
+using SmartHomeDashboard.Models;
 using System.Text.Json;
 
 namespace SmartHomeDashboard.Controllers
@@ -30,7 +31,7 @@ namespace SmartHomeDashboard.Controllers
         }
 
         [HttpPost("add")]
-        public IActionResult Add([FromBody] DeviceDataService.DeviceAddModel model)
+        public IActionResult Add([FromBody] DeviceAddModel model)
         {
             try
             {
