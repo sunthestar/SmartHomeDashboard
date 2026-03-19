@@ -1757,10 +1757,118 @@
             }
         }
 
-        // ==================== 获取天气数据 ====================
+                // ==================== 城市名称映射表（英文转中文）====================
+        const cityNameMap = {
+            // 江西
+            'jiangxi': '江西',
+            'nanchang': '南昌',
+            'jiujiang': '九江',
+            'ganzhou': '赣州',
+            'jian': '吉安',
+            'jingdezhen': '景德镇',
+            'pingxiang': '萍乡',
+            'xinyu': '新余',
+            'yingtan': '鹰潭',
+            'yichun': '宜春',
+            'fuzhou': '抚州',
+            'shangrao': '上饶',
+
+            // 北京
+            'beijing': '北京',
+
+            // 上海
+            'shanghai': '上海',
+
+            // 广东
+            'guangdong': '广东',
+            'guangzhou': '广州',
+            'shenzhen': '深圳',
+            'dongguan': '东莞',
+            'foshan': '佛山',
+            'zhuhai': '珠海',
+
+            // 江苏
+            'jiangsu': '江苏',
+            'nanjing': '南京',
+            'suzhou': '苏州',
+            'wuxi': '无锡',
+
+            // 浙江
+            'zhejiang': '浙江',
+            'hangzhou': '杭州',
+            'ningbo': '宁波',
+            'wenzhou': '温州',
+
+            // 添加更多城市...
+        };
+
+        // ==================== 获取天气数据（自动定位）====================
         async function getWeatherData() {
             try {
-                const weatherUrl = 'https://api.open-meteo.com/v1/forecast?latitude=39.9042&longitude=116.4074&current=temperature_2m,relative_humidity_2m,weathercode&timezone=Asia/Shanghai';
+                // 1. 先通过IP获取用户位置（免费API，无需授权）
+                const ipResponse = await fetch('https://ipapi.co/json/');
+
+                if (!ipResponse.ok) {
+                    throw new Error('IP定位失败');
+                }
+
+                const ipData = await ipResponse.json();
+                console.log('IP定位信息:', ipData);
+
+                // 提取位置信息
+                const city = ipData.city || ipData.region || '未知';
+                const region = ipData.region || '';
+                const country = ipData.country_name || '';
+                const latitude = ipData.latitude;
+                const longitude = ipData.longitude;
+
+                // 转换城市名称为中文
+                let displayCity = city;
+
+                // 处理 "jiangxi-nanchang" 格式
+                if (city.includes('-')) {
+                    const parts = city.split('-');
+                    // 取最后一部分作为城市名
+                    const lastPart = parts[parts.length - 1].toLowerCase();
+                    displayCity = cityNameMap[lastPart] || lastPart;
+                }
+                // 处理英文城市名
+                else if (cityNameMap[city.toLowerCase()]) {
+                    displayCity = cityNameMap[city.toLowerCase()];
+                }
+
+                // 如果仍然显示英文，尝试提取可读部分
+                if (displayCity.match(/^[a-zA-Z]/)) {
+                    // 将首字母大写转换为可读格式
+                    displayCity = displayCity.charAt(0).toUpperCase() + displayCity.slice(1);
+                }
+
+                // 最终显示：只显示城市名（南昌）
+                document.getElementById('cityName').textContent = displayCity;
+
+                // 2. 如果有坐标，获取天气数据
+                if (latitude && longitude) {
+                    await getWeatherByCoordinates(latitude, longitude, displayCity);
+                } else {
+                    // 如果IP定位失败，使用北京作为默认
+                    console.warn('IP定位失败，使用默认北京坐标');
+                    document.getElementById('cityName').textContent = '北京';
+                    await getWeatherByCoordinates(39.9042, 116.4074, '北京');
+                }
+
+            } catch (error) {
+                console.error('获取位置失败:', error);
+                // 出错时使用默认北京
+                document.getElementById('cityName').textContent = '北京';
+                await getWeatherByCoordinates(39.9042, 116.4074, '北京');
+            }
+        }
+
+                // 根据坐标获取天气
+        async function getWeatherByCoordinates(lat, lon, cityName) {
+            try {
+                // 使用Open-Meteo免费天气API
+                const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weathercode,wind_speed_10m&timezone=auto`;
 
                 const weatherResponse = await fetch(weatherUrl);
 
@@ -1770,12 +1878,11 @@
 
                 const weatherData = await weatherResponse.json();
 
-                document.getElementById('cityName').textContent = '北京';
-
                 if (weatherData && weatherData.current) {
                     const temperature = Math.round(weatherData.current.temperature_2m);
                     const humidity = weatherData.current.relative_humidity_2m;
                     const weatherCode = weatherData.current.weathercode;
+                    const windSpeed = weatherData.current.wind_speed_10m;
 
                     const weatherInfo = getWeatherInfo(weatherCode);
 
@@ -1784,6 +1891,7 @@
                     document.getElementById('humidityValue').textContent = humidity;
                     document.getElementById('weatherIcon').className = `fas ${weatherInfo.icon}`;
 
+                    // 更新温度颜色
                     const tempElement = document.getElementById('weatherTemp');
                     tempElement.classList.remove('high-temp', 'low-temp');
                     if (temperature >= 30) {
@@ -1791,15 +1899,12 @@
                     } else if (temperature <= 10) {
                         tempElement.classList.add('low-temp');
                     }
+
+                    console.log(`天气更新成功: ${cityName}, ${temperature}°C, ${weatherInfo.description}`);
                 }
             } catch (error) {
                 console.error('获取天气数据失败:', error);
-
-                document.getElementById('weatherTemp').textContent = '--°C';
-                document.getElementById('weatherDesc').textContent = '天气获取失败';
-                document.getElementById('humidityValue').textContent = '--';
-                document.getElementById('cityName').textContent = '未知';
-                document.getElementById('weatherIcon').className = 'fas fa-cloud-sun';
+                throw error;
             }
         }
 
