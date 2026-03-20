@@ -423,10 +423,10 @@
             <div class="scene-list" id="sceneList">
                 @foreach (var scene in Model.Scenes)
                 {
-                    <div class="scene-item" data-scene-id="@scene.Id" data-scene-name="@scene.Name">
+                    <div class="scene-item" data-scene-id="@scene.Id" data-scene-name="@scene.SceneName">
                         <div class="scene-left">
                             <i class="fas @scene.Icon"></i>
-                            <span>@scene.Name</span>
+                            <span>@scene.SceneName</span>
                         </div>
                         <div class="toggle-switch @(scene.IsActive ? "active" : "inactive")" data-scene-id="@scene.Id"></div>
                     </div>

@@ -25,6 +25,7 @@ namespace SmartHomeDashboard.Models
         public int OnlineCount { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.Now;
+        public DateTime? UpdatedAt { get; set; }
 
         // 导航属性
         public ICollection<DeviceModel> Devices { get; set; } = new List<DeviceModel>();
@@ -50,11 +51,13 @@ namespace SmartHomeDashboard.Models
         [StringLength(200)]
         public string? Description { get; set; }
 
+        public DateTime CreatedAt { get; set; } = DateTime.Now;
+
         // 导航属性
         public ICollection<DeviceModel> Devices { get; set; } = new List<DeviceModel>();
     }
 
-    // 设备模型（增强版）
+    // 设备模型
     public class DeviceModel
     {
         [Key]
@@ -64,12 +67,10 @@ namespace SmartHomeDashboard.Models
         [StringLength(100)]
         public string Name { get; set; } = "";
 
-        // 设备编号（房间内唯一）
         [Required]
         [StringLength(20)]
         public string DeviceNumber { get; set; } = "";  // 例如：001, 002
 
-        // 完整设备ID：房间ID-类型ID-编号
         [Required]
         [StringLength(100)]
         public string FullDeviceId { get; set; } = "";  // 例如：living-light-001
@@ -135,15 +136,167 @@ namespace SmartHomeDashboard.Models
         // 时间戳
         public DateTime CreatedAt { get; set; } = DateTime.Now;
         public DateTime? UpdatedAt { get; set; }
+
+        // 导航属性
+        public TcpConnectionModel? TcpConnection { get; set; }
+        public ICollection<SystemLogModel> SystemLogs { get; set; } = new List<SystemLogModel>();
+    }
+
+    // TCP设备连接模型
+    public class TcpConnectionModel
+    {
+        [Key]
+        public int Id { get; set; }
+
+        // 外键：关联的设备
+        public int DeviceId { get; set; }
+        public DeviceModel? Device { get; set; }
+
+        [StringLength(100)]
+        public string FullDeviceId { get; set; } = "";
+
+        [StringLength(100)]
+        public string DeviceName { get; set; } = "";
+
+        [StringLength(50)]
+        public string DeviceType { get; set; } = "";
+
+        [StringLength(50)]
+        public string IpAddress { get; set; } = "";
+
+        public int Port { get; set; }
+
+        public DateTime ConnectedTime { get; set; }
+
+        public DateTime LastHeartbeat { get; set; }
+
+        public DateTime LastSeen { get; set; }
+
+        public bool IsOnline { get; set; }
+
+        public int TimeoutCount { get; set; }
+
+        public DateTime CreatedAt { get; set; } = DateTime.Now;
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    // 系统日志模型
+    public class SystemLogModel
+    {
+        [Key]
+        public int Id { get; set; }
+
+        public DateTime Timestamp { get; set; } = DateTime.Now;
+
+        [Required]
+        [StringLength(50)]
+        public string LogType { get; set; } = "";  // device, system, alert, automation
+
+        [StringLength(20)]
+        public string LogLevel { get; set; } = "info";  // info, warning, error
+
+        [StringLength(200)]
+        public string Title { get; set; } = "";
+
+        [StringLength(500)]
+        public string Content { get; set; } = "";
+
+        // 外键：关联的设备（可选）
+        public int? DeviceId { get; set; }
+        public DeviceModel? Device { get; set; }
+
+        [StringLength(100)]
+        public string DeviceName { get; set; } = "";
+
+        [StringLength(50)]
+        public string ActionType { get; set; } = "";  // add, delete, update, control
+
+        [StringLength(500)]
+        public string ActionDetail { get; set; } = "";
+
+        public bool IsRead { get; set; } = false;
+    }
+
+    // 自动化场景模型
+    public class SceneModel
+    {
+        [Key]
+        public int Id { get; set; }
+
+        [Required]
+        [StringLength(100)]
+        public string SceneName { get; set; } = "";
+
+        [StringLength(50)]
+        public string Icon { get; set; } = "fa-clock";
+
+        [StringLength(200)]
+        public string Description { get; set; } = "";
+
+        [StringLength(50)]
+        public string TriggerType { get; set; } = "manual";  // manual, time, device
+
+        [Column(TypeName = "text")]
+        public string TriggerCondition { get; set; } = "{}";  // JSON格式
+
+        [Column(TypeName = "text")]
+        public string Actions { get; set; } = "[]";  // JSON格式
+
+        [StringLength(50)]
+        public string ExecuteTime { get; set; } = "";
+
+        [StringLength(50)]
+        public string RepeatDays { get; set; } = "";  // mon,tue,wed...
+
+        public bool IsActive { get; set; } = false;
+
+        public int ExecuteCount { get; set; } = 0;
+
+        public DateTime? LastExecuteTime { get; set; }
+
+        public DateTime CreatedAt { get; set; } = DateTime.Now;
+        public DateTime? UpdatedAt { get; set; }
+    }
+
+    // 登录设置模型（单用户模式）
+    public class LoginSettingsModel
+    {
+        [Key]
+        public int Id { get; set; } = 1;  // 只有一条记录，ID固定为1
+
+        [Required]
+        [StringLength(200)]
+        public string Password { get; set; } = "";  // 加密后的密码
+
+        [StringLength(50)]
+        public string PasswordSalt { get; set; } = "";  // 密码盐值
+
+        public bool IsEnabled { get; set; } = true;
+
+        public DateTime? LastLoginTime { get; set; }
+
+        [StringLength(50)]
+        public string LastLoginIp { get; set; } = "";
+
+        public int LoginCount { get; set; } = 0;
+
+        public int FailCount { get; set; } = 0;
+
+        public DateTime? LastFailTime { get; set; }
+
+        public DateTime? LockUntil { get; set; }
+
+        public DateTime CreatedAt { get; set; } = DateTime.Now;
+        public DateTime? UpdatedAt { get; set; }
     }
 
     // 设备添加模型
     public class DeviceAddModel
     {
         public string Name { get; set; } = "";
-        public string RoomId { get; set; } = "";  // 房间标识符
-        public string TypeId { get; set; } = "";   // 类型标识符
-        public string DeviceNumber { get; set; } = "";  // 设备编号（可选，不提供则自动生成）
+        public string RoomId { get; set; } = "";
+        public string TypeId { get; set; } = "";
+        public string DeviceNumber { get; set; } = "";
         public string Icon { get; set; } = "";
         public string Power { get; set; } = "";
         public bool IsOn { get; set; }
@@ -155,7 +308,7 @@ namespace SmartHomeDashboard.Models
         public string? Direction { get; set; }
     }
 
-    // 房间视图模型（用于前端显示）
+    // 房间视图模型
     public class RoomViewModel
     {
         public string RoomId { get; set; } = "";

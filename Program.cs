@@ -45,7 +45,11 @@ builder.Services.AddSignalR();
 builder.Services.AddSingleton<DeviceDataService>();
 builder.Services.AddSingleton<TcpServerService>();
 builder.Services.AddSingleton<TcpDeviceService>();
-builder.Services.AddSingleton<RoomService>();  // 添加房间服务
+builder.Services.AddSingleton<RoomService>();
+builder.Services.AddSingleton<LoginService>();
+builder.Services.AddSingleton<SceneService>();
+builder.Services.AddSingleton<SystemLogService>();
+builder.Services.AddSingleton<TcpConnectionService>();
 
 // 注册后台服务
 try
@@ -58,6 +62,16 @@ catch (Exception ex)
 }
 
 var app = builder.Build();
+
+// 确保数据库已创建
+using (var scope = app.Services.CreateScope())
+{
+    var dbContextFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+    using var context = dbContextFactory.CreateDbContext();
+    context.Database.EnsureCreated();
+
+    Console.WriteLine($"数据库路径: {context.DbPath}");
+}
 
 if (!app.Environment.IsDevelopment())
 {
@@ -94,9 +108,12 @@ app.MapGet("/db-info", async (IDbContextFactory<AppDbContext> dbContextFactory) 
         tables.Add(result.GetString(0));
     }
 
-    var deviceCount = await context.Devices.CountAsync();
     var roomCount = await context.Rooms.CountAsync();
-    var typeCount = await context.DeviceTypes.CountAsync();
+    var deviceTypeCount = await context.DeviceTypes.CountAsync();
+    var deviceCount = await context.Devices.CountAsync();
+    var sceneCount = await context.Scenes.CountAsync();
+    var logCount = await context.SystemLogs.CountAsync();
+    var connectionCount = await context.TcpConnections.CountAsync();
 
     return Results.Ok(new
     {
@@ -104,8 +121,11 @@ app.MapGet("/db-info", async (IDbContextFactory<AppDbContext> dbContextFactory) 
         databaseExists = File.Exists(context.DbPath),
         tables = tables,
         roomCount = roomCount,
-        deviceTypeCount = typeCount,
-        deviceCount = deviceCount
+        deviceTypeCount = deviceTypeCount,
+        deviceCount = deviceCount,
+        sceneCount = sceneCount,
+        logCount = logCount,
+        connectionCount = connectionCount
     });
 });
 

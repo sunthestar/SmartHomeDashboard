@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Microsoft.AspNetCore.Mvc;
 using SmartHomeDashboard.Services;
 using SmartHomeDashboard.Models;
-using Microsoft.AspNetCore.Mvc;
 
 namespace SmartHomeDashboard.Pages
 {
@@ -9,18 +9,26 @@ namespace SmartHomeDashboard.Pages
     {
         private readonly DeviceDataService _deviceService;
         private readonly RoomService _roomService;
+        private readonly SceneService _sceneService;
+        private readonly SystemLogService _logService;
 
-        public IndexModel(DeviceDataService deviceService, RoomService roomService)
+        public IndexModel(
+            DeviceDataService deviceService,
+            RoomService roomService,
+            SceneService sceneService,
+            SystemLogService logService)
         {
             _deviceService = deviceService;
             _roomService = roomService;
+            _sceneService = sceneService;
+            _logService = logService;
         }
 
         // KPI 数据
         public string RealTimePower { get; set; } = "0.00";
-        public string WaterUsage { get; set; } = "1.42";
-        public string AverageTemp { get; set; } = "21.5";
-        public int SecurityDevices { get; set; } = 8;
+        public string AverageHumidity { get; set; } = "--";
+        public string AverageTemp { get; set; } = "--";
+        public int SecurityDevices { get; set; } = 0;
 
         // 设备统计
         public int OnlineDevices { get; set; }
@@ -37,7 +45,7 @@ namespace SmartHomeDashboard.Pages
         public int CameraCount { get; set; } = 2;
 
         // 自动化场景统计
-        public int ActiveScenes { get; set; } = 2;
+        public int ActiveScenes { get; set; } = 0;
 
         // 设备列表
         public List<DeviceModel> Devices { get; set; } = new List<DeviceModel>();
@@ -47,6 +55,12 @@ namespace SmartHomeDashboard.Pages
 
         // 设备类型列表
         public List<DeviceTypeModel> DeviceTypes { get; set; } = new List<DeviceTypeModel>();
+
+        // 场景列表
+        public List<SceneModel> Scenes { get; set; } = new List<SceneModel>();
+
+        // 未读日志数量
+        public int UnreadLogCount { get; set; }
 
         // 监控摄像头列表
         public List<CameraModel> Cameras { get; set; } = new List<CameraModel>
@@ -69,17 +83,12 @@ namespace SmartHomeDashboard.Pages
             }
         };
 
-        // 自动化场景列表
-        public List<SceneModel> Scenes { get; set; } = new List<SceneModel>
-        {
-            new SceneModel { Id = 1, Name = "晚安模式", Icon = "fa-moon", IsActive = true, Description = "关闭所有灯光，调整空调温度", Time = "22:00" },
-            new SceneModel { Id = 2, Name = "晨间唤醒 (07:30)", Icon = "fa-sun", IsActive = true, Description = "打开卧室窗帘，启动咖啡机", Time = "07:30" },
-            new SceneModel { Id = 3, Name = "离家布防", Icon = "fa-umbrella-beach", IsActive = false, Description = "关闭所有设备，启动安防系统", Time = "手动" },
-            new SceneModel { Id = 4, Name = "晚餐模式 (18:00)", Icon = "fa-pizza-slice", IsActive = false, Description = "调暗灯光，播放音乐", Time = "18:00" }
-        };
-
-        // 只保留异步版本的 OnGet
         public async Task OnGetAsync()
+        {
+            await LoadDataAsync();
+        }
+
+        private async Task LoadDataAsync()
         {
             // 获取设备列表
             Devices = await _deviceService.GetAllDevicesAsync() ?? new List<DeviceModel>();
@@ -88,7 +97,13 @@ namespace SmartHomeDashboard.Pages
             Rooms = await _roomService.GetAllRoomsAsync() ?? new List<RoomModel>();
 
             // 获取设备类型列表
-            DeviceTypes = GetDefaultDeviceTypes();
+            DeviceTypes = await GetDeviceTypesAsync();
+
+            // 获取场景列表
+            Scenes = await _sceneService.GetAllScenesAsync();
+
+            // 获取未读日志数量
+            UnreadLogCount = await _logService.GetUnreadCountAsync();
 
             // 重新计算在线设备数量
             OnlineDevices = Devices.Count(d => d.IsOn && d.StatusText != "离线");
@@ -119,12 +134,10 @@ namespace SmartHomeDashboard.Pages
             Console.WriteLine($"Index页面加载，发现 {Devices.Count} 个设备，其中 {OnlineDevices} 个在线");
         }
 
-        // 删除同步的 OnGet 方法 - 不再需要
-        // public void OnGet() { ... }  // 已删除
-
-        private List<DeviceTypeModel> GetDefaultDeviceTypes()
+        private async Task<List<DeviceTypeModel>> GetDeviceTypesAsync()
         {
-            return new List<DeviceTypeModel>
+            // 这里应该从数据库获取，暂时返回默认列表
+            return await Task.FromResult(new List<DeviceTypeModel>
             {
                 new DeviceTypeModel { Id = 1, TypeId = "ac", TypeName = "空调", Icon = "fa-wind", Description = "智能空调" },
                 new DeviceTypeModel { Id = 2, TypeId = "light", TypeName = "灯光", Icon = "fa-lightbulb", Description = "智能灯泡" },
@@ -134,7 +147,7 @@ namespace SmartHomeDashboard.Pages
                 new DeviceTypeModel { Id = 6, TypeId = "temp-sensor", TypeName = "温度传感器", Icon = "fa-thermometer-half", Description = "温度传感器" },
                 new DeviceTypeModel { Id = 7, TypeId = "humidity-sensor", TypeName = "湿度传感器", Icon = "fa-tint", Description = "湿度传感器" },
                 new DeviceTypeModel { Id = 8, TypeId = "motor", TypeName = "电机", Icon = "fa-cogs", Description = "电机设备" }
-            };
+            });
         }
 
         private void CalculateAverageRoomTemp()
@@ -157,11 +170,11 @@ namespace SmartHomeDashboard.Pages
             if (humiditySensors.Any())
             {
                 var avgHumidity = humiditySensors.Average(d => d.Humidity.Value);
-                WaterUsage = avgHumidity.ToString("F0");
+                AverageHumidity = avgHumidity.ToString("F0");
             }
             else
             {
-                WaterUsage = "--";
+                AverageHumidity = "--";
             }
         }
 
@@ -172,16 +185,6 @@ namespace SmartHomeDashboard.Pages
             public bool HasMotion { get; set; }
             public string TimeText { get; set; } = "";
             public string Status { get; set; } = "";
-        }
-
-        public class SceneModel
-        {
-            public int Id { get; set; }
-            public string Name { get; set; } = "";
-            public string Icon { get; set; } = "";
-            public bool IsActive { get; set; }
-            public string Description { get; set; } = "";
-            public string Time { get; set; } = "";
         }
     }
 }

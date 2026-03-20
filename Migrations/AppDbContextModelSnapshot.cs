@@ -138,7 +138,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 1,
-                            CreatedAt = new DateTime(2026, 3, 19, 23, 17, 37, 438, DateTimeKind.Local).AddTicks(8539),
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1111),
                             Detail = "空调 · 等待连接",
                             DeviceNumber = "001",
                             DeviceTypeId = 1,
@@ -164,7 +164,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 2,
-                            CreatedAt = new DateTime(2026, 3, 19, 23, 17, 37, 438, DateTimeKind.Local).AddTicks(8542),
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1115),
                             Detail = "灯光 · 等待连接",
                             DeviceNumber = "001",
                             DeviceTypeId = 2,
@@ -184,7 +184,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 3,
-                            CreatedAt = new DateTime(2026, 3, 19, 23, 17, 37, 438, DateTimeKind.Local).AddTicks(8545),
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1117),
                             Detail = "门锁 · 等待连接",
                             DeviceNumber = "001",
                             DeviceTypeId = 3,
@@ -205,7 +205,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 4,
-                            CreatedAt = new DateTime(2026, 3, 19, 23, 17, 37, 438, DateTimeKind.Local).AddTicks(8587),
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1124),
                             Detail = "温度传感器 · 等待连接",
                             DeviceNumber = "001",
                             DeviceTypeId = 6,
@@ -226,7 +226,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 5,
-                            CreatedAt = new DateTime(2026, 3, 19, 23, 17, 37, 438, DateTimeKind.Local).AddTicks(8590),
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1126),
                             Detail = "湿度传感器 · 等待连接",
                             DeviceNumber = "001",
                             DeviceTypeId = 7,
@@ -247,7 +247,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 6,
-                            CreatedAt = new DateTime(2026, 3, 19, 23, 17, 37, 438, DateTimeKind.Local).AddTicks(8593),
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1129),
                             Detail = "风扇 · 等待连接",
                             DeviceNumber = "001",
                             DeviceTypeId = 5,
@@ -272,6 +272,9 @@ namespace SmartHomeDashboard.Migrations
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("Description")
                         .HasMaxLength(200)
@@ -303,6 +306,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 1,
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1071),
                             Description = "智能空调",
                             Icon = "fa-wind",
                             TypeId = "ac",
@@ -311,6 +315,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 2,
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1073),
                             Description = "智能灯泡",
                             Icon = "fa-lightbulb",
                             TypeId = "light",
@@ -319,6 +324,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 3,
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1075),
                             Description = "智能门锁",
                             Icon = "fa-lock",
                             TypeId = "lock",
@@ -327,6 +333,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 4,
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1076),
                             Description = "网络摄像头",
                             Icon = "fa-camera",
                             TypeId = "camera",
@@ -335,6 +342,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 5,
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1078),
                             Description = "智能风扇",
                             Icon = "fa-fan",
                             TypeId = "fan",
@@ -343,6 +351,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 6,
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1079),
                             Description = "温度传感器",
                             Icon = "fa-thermometer-half",
                             TypeId = "temp-sensor",
@@ -351,6 +360,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 7,
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1082),
                             Description = "湿度传感器",
                             Icon = "fa-tint",
                             TypeId = "humidity-sensor",
@@ -359,10 +369,77 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 8,
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1083),
                             Description = "电机设备",
                             Icon = "fa-cogs",
                             TypeId = "motor",
                             TypeName = "电机"
+                        });
+                });
+
+            modelBuilder.Entity("SmartHomeDashboard.Models.LoginSettingsModel", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("FailCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastFailTime")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastLoginIp")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastLoginTime")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LockUntil")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("LoginCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Password")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PasswordSalt")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Id")
+                        .IsUnique();
+
+                    b.ToTable("LoginSettings");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(912),
+                            FailCount = 0,
+                            IsEnabled = true,
+                            LastLoginIp = "",
+                            LoginCount = 0,
+                            Password = "123456",
+                            PasswordSalt = ""
                         });
                 });
 
@@ -395,6 +472,9 @@ namespace SmartHomeDashboard.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
 
                     b.HasIndex("RoomId")
@@ -406,7 +486,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 1,
-                            CreatedAt = new DateTime(2026, 3, 19, 23, 17, 37, 438, DateTimeKind.Local).AddTicks(8421),
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1035),
                             Description = "主要活动区域",
                             DeviceCount = 0,
                             OnlineCount = 0,
@@ -416,7 +496,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 2,
-                            CreatedAt = new DateTime(2026, 3, 19, 23, 17, 37, 438, DateTimeKind.Local).AddTicks(8433),
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1037),
                             Description = "主人卧室",
                             DeviceCount = 0,
                             OnlineCount = 0,
@@ -426,7 +506,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 3,
-                            CreatedAt = new DateTime(2026, 3, 19, 23, 17, 37, 438, DateTimeKind.Local).AddTicks(8434),
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1040),
                             Description = "次卧/客房",
                             DeviceCount = 0,
                             OnlineCount = 0,
@@ -436,7 +516,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 4,
-                            CreatedAt = new DateTime(2026, 3, 19, 23, 17, 37, 438, DateTimeKind.Local).AddTicks(8435),
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1042),
                             Description = "烹饪区域",
                             DeviceCount = 0,
                             OnlineCount = 0,
@@ -446,7 +526,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 5,
-                            CreatedAt = new DateTime(2026, 3, 19, 23, 17, 37, 438, DateTimeKind.Local).AddTicks(8436),
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1046),
                             Description = "洗浴区域",
                             DeviceCount = 0,
                             OnlineCount = 0,
@@ -456,7 +536,7 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 6,
-                            CreatedAt = new DateTime(2026, 3, 19, 23, 17, 37, 438, DateTimeKind.Local).AddTicks(8437),
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1048),
                             Description = "用餐区域",
                             DeviceCount = 0,
                             OnlineCount = 0,
@@ -466,13 +546,270 @@ namespace SmartHomeDashboard.Migrations
                         new
                         {
                             Id = 7,
-                            CreatedAt = new DateTime(2026, 3, 19, 23, 17, 37, 438, DateTimeKind.Local).AddTicks(8438),
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1049),
                             Description = "玄关/入口",
                             DeviceCount = 0,
                             OnlineCount = 0,
                             RoomId = "entrance",
                             RoomName = "入口"
                         });
+                });
+
+            modelBuilder.Entity("SmartHomeDashboard.Models.SceneModel", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Actions")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ExecuteCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ExecuteTime")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Icon")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastExecuteTime")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RepeatDays")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SceneName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TriggerCondition")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TriggerType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("SceneName");
+
+                    b.HasIndex("TriggerType");
+
+                    b.ToTable("Scenes");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Actions = "[{\"type\":\"light\",\"action\":\"off\"},{\"type\":\"ac\",\"action\":\"set_temperature\",\"value\":24}]",
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1147),
+                            Description = "关闭所有灯光，调整空调温度",
+                            ExecuteCount = 0,
+                            ExecuteTime = "22:00",
+                            Icon = "fa-moon",
+                            IsActive = true,
+                            RepeatDays = "mon,tue,wed,thu,fri,sat,sun",
+                            SceneName = "晚安模式",
+                            TriggerCondition = "{\"time\":\"22:00\"}",
+                            TriggerType = "time"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Actions = "[{\"type\":\"curtain\",\"action\":\"open\"},{\"type\":\"coffee\",\"action\":\"on\"}]",
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1151),
+                            Description = "打开卧室窗帘，启动咖啡机",
+                            ExecuteCount = 0,
+                            ExecuteTime = "07:30",
+                            Icon = "fa-sun",
+                            IsActive = true,
+                            RepeatDays = "mon,tue,wed,thu,fri",
+                            SceneName = "晨间唤醒",
+                            TriggerCondition = "{\"time\":\"07:30\"}",
+                            TriggerType = "time"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Actions = "[{\"type\":\"all\",\"action\":\"off\"},{\"type\":\"security\",\"action\":\"on\"}]",
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1155),
+                            Description = "关闭所有设备，启动安防系统",
+                            ExecuteCount = 0,
+                            ExecuteTime = "",
+                            Icon = "fa-umbrella-beach",
+                            IsActive = false,
+                            RepeatDays = "",
+                            SceneName = "离家布防",
+                            TriggerCondition = "{}",
+                            TriggerType = "manual"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Actions = "[{\"type\":\"light\",\"action\":\"dim\",\"value\":50},{\"type\":\"music\",\"action\":\"play\",\"playlist\":\"dinner\"}]",
+                            CreatedAt = new DateTime(2026, 3, 20, 11, 5, 17, 95, DateTimeKind.Local).AddTicks(1157),
+                            Description = "调暗灯光，播放音乐",
+                            ExecuteCount = 0,
+                            ExecuteTime = "18:00",
+                            Icon = "fa-pizza-slice",
+                            IsActive = false,
+                            RepeatDays = "mon,tue,wed,thu,fri",
+                            SceneName = "晚餐模式",
+                            TriggerCondition = "{\"time\":\"18:00\"}",
+                            TriggerType = "time"
+                        });
+                });
+
+            modelBuilder.Entity("SmartHomeDashboard.Models.SystemLogModel", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ActionDetail")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ActionType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("DeviceId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DeviceName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LogLevel")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LogType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("Timestamp")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceId");
+
+                    b.HasIndex("LogType");
+
+                    b.HasIndex("Timestamp");
+
+                    b.ToTable("SystemLogs");
+                });
+
+            modelBuilder.Entity("SmartHomeDashboard.Models.TcpConnectionModel", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("ConnectedTime")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DeviceId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DeviceName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FullDeviceId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("IpAddress")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsOnline")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("LastHeartbeat")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastSeen")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Port")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TimeoutCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeviceId")
+                        .IsUnique();
+
+                    b.HasIndex("FullDeviceId")
+                        .IsUnique();
+
+                    b.ToTable("TcpConnections");
                 });
 
             modelBuilder.Entity("SmartHomeDashboard.Models.DeviceModel", b =>
@@ -492,6 +829,34 @@ namespace SmartHomeDashboard.Migrations
                     b.Navigation("DeviceType");
 
                     b.Navigation("Room");
+                });
+
+            modelBuilder.Entity("SmartHomeDashboard.Models.SystemLogModel", b =>
+                {
+                    b.HasOne("SmartHomeDashboard.Models.DeviceModel", "Device")
+                        .WithMany("SystemLogs")
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Device");
+                });
+
+            modelBuilder.Entity("SmartHomeDashboard.Models.TcpConnectionModel", b =>
+                {
+                    b.HasOne("SmartHomeDashboard.Models.DeviceModel", "Device")
+                        .WithOne("TcpConnection")
+                        .HasForeignKey("SmartHomeDashboard.Models.TcpConnectionModel", "DeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Device");
+                });
+
+            modelBuilder.Entity("SmartHomeDashboard.Models.DeviceModel", b =>
+                {
+                    b.Navigation("SystemLogs");
+
+                    b.Navigation("TcpConnection");
                 });
 
             modelBuilder.Entity("SmartHomeDashboard.Models.DeviceTypeModel", b =>
