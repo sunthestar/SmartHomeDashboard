@@ -33,7 +33,6 @@
             <span id="datePart">@DateTime.Now.ToString("yyyy-MM-dd dddd")</span>
             <span id="timePart" style="margin-left: 8px; font-family: monospace;">@DateTime.Now.ToString("HH:mm:ss")</span>
         </div>
-        <!-- 退出登录图标 -->
         <div class="action-icons">
             <a href="/Login?handler=logout" style="text-decoration: none; color: inherit;" onclick="return confirm('确定要退出登录吗？');">
                 <i class="fas fa-sign-out-alt login-icon" title="退出登录"></i>
@@ -110,9 +109,10 @@
         <div class="device-grid" id="deviceGrid">
             @foreach (var device in Model.Devices)
             {
-                var isOffline = !device.IsOn && device.StatusText == "离线";
+                var isOffline = device.StatusText == "离线";
                 <div class="device-item @(isOffline ? "offline" : "")"
                      data-id="@device.Id"
+                     data-full-id="@device.FullDeviceId"
                      data-room="@device.RoomIdentifier"
                      data-type="@device.TypeIdentifier"
                      data-power="@device.PowerValue"
@@ -128,15 +128,21 @@
                             <div class="device-status @(device.IsOn && device.StatusText != "离线" ? "on" : "")"
                                  data-device-type="@device.TypeIdentifier"
                                  data-is-on="@(device.IsOn.ToString().ToLower())"
-                                 data-temperature="@device.Temperature"
-                                 data-humidity="@device.Humidity"
-                                 data-speed="@device.MotorSpeed"
-                                 data-mode="@device.Mode"
-                                 data-direction="@device.Direction"
-                                 data-swing-vertical="@(device.SwingVertical?.ToString().ToLower() ?? "false")"
-                                 data-swing-horizontal="@(device.SwingHorizontal?.ToString().ToLower() ?? "false")"
-                                 data-light="@(device.Light?.ToString().ToLower() ?? "false")"
-                                 data-quiet="@(device.Quiet?.ToString().ToLower() ?? "false")">
+                                 data-temperature-value="@device.TemperatureValue"
+                                 data-humidity-value="@device.HumidityValue"
+                                 data-battery-level="@device.BatteryLevel"
+                                 data-ac-temperature="@device.AcTemperature"
+                                 data-ac-mode="@device.AcMode"
+                                 data-fan-speed="@device.FanSpeed"
+                                 data-motor-speed="@device.MotorSpeed"
+                                 data-motor-direction="@device.MotorDirection"
+                                 data-brightness="@device.Brightness"
+                                 data-color-temperature="@device.ColorTemperature"
+                                 data-last-unlock-time="@device.LastUnlockTime"
+                                 data-unlock-method="@device.UnlockMethod"
+                                 data-is-recording="@device.IsRecording"
+                                 data-motion-detected="@device.MotionDetected"
+                                 data-night-mode="@device.NightMode">
                                 @if (device.IsOn && device.StatusText != "离线")
                                 {
                                     <i class="fas fa-circle" style="font-size:0.5rem; margin-right:5px; color:#2ecc71;"></i>
@@ -155,59 +161,62 @@
                                         {
                                             switch (device.TypeIdentifier)
                                             {
-                                                case "lock":
-                                                    @(device.IsOn ? "已上锁" : "未上锁")
+                                                case "temp-sensor":
+                                                    var tempValue = device.TemperatureValue ?? device.Temperature;
+                                                    if (tempValue.HasValue)
+                                                    {
+                                                        @:温度 @tempValue.Value.ToString("F1")°C
+                                                    }
+                                                    else
+                                                    {
+                                                        @:--
+                                                    }
+                                                    break;
+                                                case "humidity-sensor":
+                                                    var humidityValue = device.HumidityValue ?? device.Temperature;
+                                                    if (humidityValue.HasValue)
+                                                    {
+                                                        @:湿度 @humidityValue.Value.ToString("F0")%
+                                                    }
+                                                    else
+                                                    {
+                                                        @:--
+                                                    }
+                                                    break;
+                                                case "light":
+                                                    @(device.IsOn ? "开启" : "关闭")
                                                     break;
                                                 case "ac":
                                                     if (device.IsOn)
                                                     {
-                                                        var modeText = device.Mode switch
+                                                        var modeText = (device.AcMode ?? device.Mode) switch
                                                         {
-                                                                                        "cool" => "制冷",
-                                                                                        "heat" => "制热",
-                                                                                        "fan" => "送风",
-                                                                                        "dry" => "除湿",
-                                                                                        "auto" => "自动",
-                                                            _ => device.Mode ?? "制冷"
+                                                            "cool" => "制冷",
+                                                            "heat" => "制热",
+                                                            "fan" => "送风",
+                                                            "dry" => "除湿",
+                                                            "auto" => "自动",
+                                                            _ => device.AcMode ?? "制冷"
                                                         };
-                                                        @:@(modeText) @(device.Temperature?.ToString("F0") ?? "24")°C
+                                                        var temp = device.AcTemperature ?? (int?)device.Temperature ?? 24;
+                                                        @:@(modeText) @(temp)°C
                                                     }
                                                     else
                                                     {
                                                         @:关闭
                                                     }
                                                     break;
-                                                case "temp-sensor":
-                                                    if (device.Temperature.HasValue)
-                                                    {
-                                                        @:温度 @device.Temperature.Value.ToString("F1")°C
-                                                    }
-                                                    else
-                                                    {
-                                                        @:在线
-                                                    }
+                                                case "lock":
+                                                    @(device.IsOn ? "已上锁" : "未上锁")
                                                     break;
-                                                case "humidity-sensor":
-                                                    if (device.Humidity.HasValue)
-                                                    {
-                                                        @:湿度 @device.Humidity%
-                                                    }
-                                                    else
-                                                    {
-                                                        @:在线
-                                                    }
+                                                case "camera":
+                                                    @(device.IsOn ? "在线" : "离线")
                                                     break;
                                                 case "fan":
                                                     if (device.IsOn)
                                                     {
-                                                        if (device.MotorSpeed.HasValue)
-                                                        {
-                                                            @:风速 @(device.MotorSpeed)档
-                                                        }
-                                                        else
-                                                        {
-                                                            @:运行中
-                                                        }
+                                                        var speed = device.FanSpeed ?? device.MotorSpeed ?? 3;
+                                                        @:风速 @(speed)档
                                                     }
                                                     else
                                                     {
@@ -217,21 +226,24 @@
                                                 case "motor":
                                                     if (device.IsOn)
                                                     {
-                                                        @:电机 @(device.Direction == "forward" ? "正转" : device.Direction == "reverse" ? "反转" : "停止")
+                                                        var direction = device.MotorDirection ?? device.Direction ?? "stop";
+                                                        var speed = device.MotorSpeed ?? 0;
+                                                        if (speed > 0)
+                                                        {
+                                                            @:电机 @(direction == "forward" ? "正转" : direction == "reverse" ? "反转" : "停止") @(speed)rpm
+                                                        }
+                                                        else
+                                                        {
+                                                            @:电机 @(direction == "forward" ? "正转" : direction == "reverse" ? "反转" : "停止")
+                                                        }
                                                     }
                                                     else
                                                     {
                                                         @:停止
                                                     }
                                                     break;
-                                                case "light":
-                                                    @(device.IsOn ? "开启" : "关闭")
-                                                    break;
-                                                case "camera":
-                                                    @(device.IsOn ? "在线" : "离线")
-                                                    break;
                                                 default:
-                                                    @device.StatusText
+                                                    @(device.IsOn ? "开启" : "关闭")
                                                     break;
                                             }
                                         }
@@ -246,51 +258,76 @@
                             @{
                                 if (device.StatusText == "离线")
                                 {
-                                    @:最后在线: 刚刚
+                                    @:设备离线
                                 }
                                 else
                                 {
                                     switch (device.TypeIdentifier)
                                     {
                                         case "lock":
-                                            if (device.Humidity.HasValue)
+                                            if (device.BatteryLevel.HasValue || device.Humidity.HasValue)
                                             {
-                                                @:电量 @device.Humidity%
+                                                var battery = device.BatteryLevel ?? device.Humidity;
+                                                @:电量 @battery%
                                             }
                                             else
                                             {
                                                 @device.Detail
                                             }
                                             break;
-                                        case "ac":
-                                            var modeDisplay = device.Mode switch
+                                        case "camera":
+                                            if (device.IsRecording == true)
                                             {
-                                                                        "cool" => "制冷",
-                                                                        "heat" => "制热",
-                                                                        "fan" => "送风",
-                                                                        "dry" => "除湿",
-                                                                        "auto" => "自动",
-                                                _ => device.Mode ?? "制冷"
+                                                @:录制中
+                                            }
+                                            else if (device.MotionDetected == true)
+                                            {
+                                                @:移动侦测
+                                            }
+                                            else
+                                            {
+                                                @:待机
+                                            }
+                                            break;
+                                        case "ac":
+                                            var modeDisplay = (device.AcMode ?? device.Mode) switch
+                                            {
+                                                "cool" => "制冷",
+                                                "heat" => "制热",
+                                                "fan" => "送风",
+                                                "dry" => "除湿",
+                                                "auto" => "自动",
+                                                _ => device.AcMode ?? "制冷"
                                             };
-                                            @:模式: @modeDisplay · @(device.Temperature?.ToString("F0") ?? "23")°C · 风速中
+                                            var fanSpeedDisplay = device.AcFanSpeed switch
+                                            {
+                                                "low" => "低风",
+                                                "medium" => "中风",
+                                                "high" => "高风",
+                                                "auto" => "自动",
+                                                _ => "中风"
+                                            };
+                                            @:模式: @modeDisplay · @(device.AcTemperature ?? (int?)device.Temperature ?? 23)°C · @fanSpeedDisplay
                                             break;
                                         case "temp-sensor":
-                                            @:温度传感器 · 在线
+                                            @:温度传感器
                                             break;
                                         case "humidity-sensor":
-                                            @:湿度传感器 · 在线
+                                            @:湿度传感器
                                             break;
                                         case "fan":
                                             @:风扇 @(device.IsOn ? "运行中" : "已关闭")
+                                            if (device.FanSwing == true)
+                                            {
+                                                @: · 摆头
+                                            }
                                             break;
                                         case "motor":
                                             @:电机 @(device.IsOn ? "运行中" : "已停止")
                                             break;
                                         case "light":
-                                            @:亮度 @(device.Progress)%
-                                            break;
-                                        case "camera":
-                                            @:事件 2
+                                            var brightness = device.Brightness ?? device.Progress;
+                                            @:亮度 @(brightness)%
                                             break;
                                         default:
                                             @device.Detail
@@ -300,28 +337,32 @@
                             }
                         </span>
                         <span class="device-power" data-power-value="@device.PowerValue">
-                            @if (device.TypeIdentifier == "lock" || device.TypeIdentifier == "camera" ||
-                                                    device.TypeIdentifier == "temp-sensor" || device.TypeIdentifier == "humidity-sensor")
-                            {
-                                if (device.Humidity.HasValue)
+                            @{
+                                // 电池供电设备显示电池图标
+                                var batteryDevices = new[] { "temp-sensor", "humidity-sensor", "lock", "camera" };
+                                if (batteryDevices.Contains(device.TypeIdentifier))
                                 {
-                                    var batteryLevel = device.Humidity.Value;
-                                    var batteryIcon = batteryLevel >= 75 ? "fa-battery-full" :
-                                    batteryLevel >= 50 ? "fa-battery-three-quarters" :
-                                    batteryLevel >= 25 ? "fa-battery-half" :
-                                    batteryLevel >= 10 ? "fa-battery-quarter" : "fa-battery-empty";
-                                    var batteryColor = batteryLevel <= 15 ? "#f44336" :
-                                    batteryLevel <= 30 ? "#ff9800" : "#4caf50";
-                                    <i class="fas @batteryIcon" style="color: @batteryColor;" title="电量 @device.Humidity%"></i>
+                                    var batteryLevel = device.BatteryLevel ?? device.Humidity;
+                                    if (batteryLevel.HasValue)
+                                    {
+                                        var level = batteryLevel.Value;
+                                        var batteryIcon = level >= 75 ? "fa-battery-full" :
+                                                          level >= 50 ? "fa-battery-three-quarters" :
+                                                          level >= 25 ? "fa-battery-half" :
+                                                          level >= 10 ? "fa-battery-quarter" : "fa-battery-empty";
+                                        var batteryColor = level <= 15 ? "#f44336" :
+                                                           level <= 30 ? "#ff9800" : "#4caf50";
+                                        <i class="fas @batteryIcon" style="color: @batteryColor;" title="电量 @(level)%"></i>
+                                    }
+                                    else
+                                    {
+                                        @device.Power
+                                    }
                                 }
                                 else
                                 {
                                     @device.Power
                                 }
-                            }
-                            else
-                            {
-                                @device.Power
                             }
                         </span>
                     </div>
@@ -334,27 +375,23 @@
         <hr>
         <!-- 按键式按钮区域 -->
         <div style="display: flex; gap: 15px; margin-top: 15px; margin-bottom: 20px;">
-            <!-- 添加设备按键 -->
             <button class="action-button add-button" id="addDeviceBtn">
                 <i class="fas fa-plus-circle"></i>
                 <span>添加设备</span>
             </button>
-
-            <!-- 所有日志按键 -->
             <button class="action-button log-button" id="logsBtn">
                 <i class="fas fa-scroll"></i>
                 <span>所有日志</span>
             </button>
         </div>
 
-        <!-- 最新日志区域 - 显示4条 -->
+        <!-- 最新日志区域 -->
         <div class="recent-logs-container">
             <div class="recent-logs-header">
                 <i class="fas fa-history"></i>
                 <span>最新动态</span>
             </div>
             <div class="recent-logs-list" id="recentLogsList">
-                <!-- 日志将通过JavaScript动态加载 -->
             </div>
         </div>
     </div>
@@ -372,15 +409,12 @@
                 <span id="estimatedEnergy">预估 @Model.EstimatedEnergy kWh</span>
                 <span id="peakPower">峰值 @Model.PeakPower kW (14:30)</span>
             </div>
-
-            <!-- 柱状图 -->
             <div class="energy-graph" id="energyGraph">
                 @foreach (var value in Model.EnergyData)
                 {
                     <div class="graph-bar"><div class="fill" style="height: @value%;"></div></div>
                 }
             </div>
-
             <div style="display:flex; justify-content:space-between; color:#53779e; font-size:0.8rem; margin-top:6px;">
                 <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>现在</span>
             </div>
@@ -418,7 +452,7 @@
         <div class="automation-card">
             <div class="section-header" style="margin-bottom:8px;">
                 <h2 style="font-size:1.2rem;"><i class="fas fa-clock"></i> 智能自动化</h2>
-                <span class="badge" id="activeScenesCount">0 执行中</span>
+                <span class="badge" id="activeScenesCount">@Model.ActiveScenes 执行中</span>
             </div>
             <div class="scene-list" id="sceneList">
                 @foreach (var scene in Model.Scenes)
@@ -479,6 +513,10 @@
                     <label for="motorSpeed">当前转速 (rpm)</label>
                     <input type="number" id="motorSpeed" name="motorSpeed" step="10" min="0" max="3000" value="1000" placeholder="例如：1200">
                 </div>
+                <div class="form-group" id="batteryLevelGroup" style="display: none;">
+                    <label for="batteryLevel">电量 (%)</label>
+                    <input type="number" id="batteryLevel" name="batteryLevel" step="1" min="0" max="100" value="100" placeholder="例如：85">
+                </div>
                 <div class="form-group">
                     <label for="devicePower">功率 (W/kW)</label>
                     <input type="text" id="devicePower" name="devicePower" required placeholder="例如：45W 或 1.2kW">
@@ -503,7 +541,7 @@
     </div>
 </div>
 
-<!-- 设备设置模态框 - 不同类型有不同的界面 -->
+<!-- 设备设置模态框 -->
 <div id="deviceSettingsModal" class="modal" style="display: none;">
     <div class="modal-content" style="max-width: 500px;">
         <div class="modal-header">
@@ -511,7 +549,6 @@
             <span class="close-modal">&times;</span>
         </div>
         <div class="modal-body" id="settingsContent">
-            <!-- 设置内容将通过JavaScript动态加载 -->
         </div>
         <div class="modal-footer">
             <button class="btn btn-secondary close-modal">关闭</button>
@@ -587,18 +624,10 @@
         <div class="form-group">
             <label>功能</label>
             <div style="display: flex; flex-wrap: wrap; gap: 15px;">
-                <label>
-                    <input type="checkbox" id="acSwingVertical"> 上下扫风
-                </label>
-                <label>
-                    <input type="checkbox" id="acSwingHorizontal"> 左右扫风
-                </label>
-                <label>
-                    <input type="checkbox" id="acLight"> 灯光
-                </label>
-                <label>
-                    <input type="checkbox" id="acQuiet"> 静音
-                </label>
+                <label><input type="checkbox" id="acSwingVertical"> 上下扫风</label>
+                <label><input type="checkbox" id="acSwingHorizontal"> 左右扫风</label>
+                <label><input type="checkbox" id="acLight"> 灯光</label>
+                <label><input type="checkbox" id="acQuiet"> 静音</label>
             </div>
         </div>
     </div>
@@ -708,7 +737,7 @@
     </div>
 </template>
 
-<!-- 温度传感器设置模板（只读） -->
+<!-- 温度传感器设置模板 -->
 <template id="tempSensorSettingsTemplate">
     <div class="settings-form">
         <div class="form-group">
@@ -743,7 +772,7 @@
     </div>
 </template>
 
-<!-- 湿度传感器设置模板（只读） -->
+<!-- 湿度传感器设置模板 -->
 <template id="humiditySensorSettingsTemplate">
     <div class="settings-form">
         <div class="form-group">
@@ -755,9 +784,9 @@
         <div class="form-group">
             <label>电量</label>
             <div class="progress-bg" style="height: 20px;">
-                <div class="progress-fill" id="batteryLevelFill" style="width: 0%; background: #4caf50;"></div>
+                <div class="progress-fill" id="humidityBatteryFill" style="width: 0%; background: #4caf50;"></div>
             </div>
-            <span id="batteryLevelText">--%</span>
+            <span id="humidityBatteryText">--%</span>
         </div>
         <div class="form-group">
             <label>上报频率</label>
@@ -828,7 +857,6 @@
                 <input type="text" id="logSearch" class="log-filter-input" placeholder="搜索日志...">
             </div>
             <div class="logs-list" id="logsList">
-                <!-- 日志将通过JavaScript动态加载 -->
             </div>
         </div>
         <div class="modal-footer">
@@ -838,26 +866,35 @@
     </div>
 </div>
 
-<!-- 底部语音/快捷栏 -->
-<div class="footer-actions">
-    <div class="voice-assist">
-        <i class="fas fa-microphone-alt" style="background:#cde1fe; padding:14px; border-radius:50%; font-size:1.2rem; color:#1d4f87;"></i>
-        <span><strong>语音助手</strong> · “嘿管家，关闭客厅灯光”</span>
+<!-- 底部语音助手栏 -->
+<div class="footer-actions-full">
+    <div class="voice-assist-full">
+        <i class="fas fa-microphone-alt" id="voiceAssistantBtn"></i>
+        <div class="ai-command-input-full">
+            <input type="text" id="aiCommandInput" placeholder="输入指令，例如：打开客厅灯光、查看设备状态..." autocomplete="off">
+            <button id="aiCommandSend">
+                <i class="fas fa-paper-plane"></i> 发送
+            </button>
+        </div>
     </div>
-    <div class="shortcuts">
-        <i class="fas fa-bell"></i>
-        <i class="fas fa-thermometer-half"></i>
-        <i class="fas fa-lock"></i>
-        <i class="fas fa-fan"></i>
+</div>
+
+<!-- AI响应消息区域 -->
+<div class="ai-response-area" id="aiResponseArea" style="display: none;">
+    <div class="ai-response-header">
+        <i class="fas fa-robot"></i>
+        <span>AI助手回复</span>
+        <button class="ai-response-close"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="ai-response-content" id="aiResponseContent">
     </div>
 </div>
 
 <!-- 添加SignalR客户端库 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
 
-<!-- 添加天气样式 -->
 <style>
-    /* 天气图标样式 - 两行布局 */
+    /* 天气图标样式 */
     .weather {
         display: flex;
         align-items: center;
@@ -927,10 +964,10 @@
         gap: 3px;
     }
 
-        .weather-humidity i, .weather-city i {
-            font-size: 0.75rem;
-            opacity: 0.8;
-        }
+    .weather-humidity i, .weather-city i {
+        font-size: 0.75rem;
+        opacity: 0.8;
+    }
 
     .weather-separator {
         color: #999;
@@ -938,7 +975,6 @@
         margin: 0 2px;
     }
 
-    /* 高温低温颜色 */
     .weather-temp.high-temp {
         color: #f44336;
     }
@@ -947,11 +983,282 @@
         color: #2196f3;
     }
 
-    /* 切换开关容器样式 */
-    .toggle-switch-container {
+    /* 全宽底部语音助手栏 */
+    .footer-actions-full {
+        margin-top: 28px;
+        background: rgba(255, 255, 255, 0.8);
+        border-radius: 60px;
+        padding: 12px 24px;
+        border: 1px solid #c2d8f2;
+        backdrop-filter: blur(6px);
+        width: 100%;
+    }
+
+    body.night-mode .footer-actions-full {
+        background: rgba(12, 26, 40, 0.7);
+        border: 1px solid #2e4b6d;
+    }
+
+    .voice-assist-full {
         display: flex;
         align-items: center;
-        gap: 15px;
+        gap: 20px;
+        width: 100%;
+    }
+
+    .voice-assist-full i {
+        font-size: 1.5rem;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        padding: 12px;
+        border-radius: 50%;
+        color: white;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .voice-assist-full i:hover {
+        transform: scale(1.05);
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+    }
+
+    .ai-command-input-full {
+        flex: 1;
+        display: flex;
+        gap: 12px;
+    }
+
+    .ai-command-input-full input {
+        flex: 1;
+        padding: 8px 20px;
+        border-radius: 40px;
+        border: 1px solid #b9cfec;
+        background: rgba(255, 255, 255, 0.9);
+        outline: none;
+        font-size: 0.95rem;
+        transition: all 0.2s;
+    }
+
+    body.night-mode .ai-command-input-full input {
+        background: rgba(20, 30, 44, 0.9);
+        border: 1px solid #314d6b;
+        color: #eef5ff;
+    }
+
+    .ai-command-input-full input:focus {
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .ai-command-input-full button {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border: none;
+        color: white;
+        padding: 6px 20px;
+        border-radius: 40px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .ai-command-input-full button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    }
+
+    /* AI响应区域样式 */
+    .ai-response-area {
+        position: fixed;
+        bottom: 100px;
+        right: 20px;
+        width: 380px;
+        background: rgba(255, 255, 255, 0.98);
+        backdrop-filter: blur(10px);
+        border-radius: 16px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        z-index: 1000;
+        border: 1px solid rgba(102, 126, 234, 0.3);
+        animation: slideUp 0.3s ease;
+    }
+
+    body.night-mode .ai-response-area {
+        background: rgba(18, 24, 36, 0.98);
+        border: 1px solid rgba(66, 140, 200, 0.3);
+    }
+
+    .ai-response-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+        border-radius: 16px 16px 0 0;
+    }
+
+    .ai-response-header i {
+        font-size: 1.1rem;
+    }
+
+    .ai-response-header span {
+        flex: 1;
+        font-weight: 500;
+    }
+
+    .ai-response-close {
+        background: none;
+        border: none;
+        color: white;
+        cursor: pointer;
+        font-size: 1rem;
+        opacity: 0.8;
+        transition: opacity 0.2s;
+    }
+
+    .ai-response-close:hover {
+        opacity: 1;
+    }
+
+    .ai-response-content {
+        padding: 16px;
+        max-height: 300px;
+        overflow-y: auto;
+        font-size: 0.95rem;
+        line-height: 1.5;
+        color: #333;
+    }
+
+    body.night-mode .ai-response-content {
+        color: #eef5ff;
+    }
+
+    .ai-response-content .ai-thinking {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #667eea;
+    }
+
+    .ai-loading-spinner {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(102, 126, 234, 0.3);
+        border-radius: 50%;
+        border-top-color: #667eea;
+        animation: spin 1s ease-in-out infinite;
+    }
+
+    @@keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    @@keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .voice-listening {
+        animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @@keyframes pulse {
+        0% { box-shadow: 0 0 0 0 rgba(102, 126, 234, 0.4); }
+        70% { box-shadow: 0 0 0 15px rgba(102, 126, 234, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(102, 126, 234, 0); }
+    }
+
+    .suggestions-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid #e0e0e0;
+    }
+
+    body.night-mode .suggestions-tags {
+        border-top: 1px solid #2c4057;
+    }
+
+    .suggestion-tag {
+        background: rgba(102, 126, 234, 0.1);
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        cursor: pointer;
+        transition: all 0.2s;
+        color: #667eea;
+    }
+
+    .suggestion-tag:hover {
+        background: rgba(102, 126, 234, 0.2);
+        transform: translateY(-1px);
+    }
+
+    body.night-mode .suggestion-tag {
+        color: #9fc6ff;
+    }
+
+    /* 离线设备样式 */
+    .device-item.offline {
+        opacity: 0.7;
+        filter: grayscale(80%);
+        background: rgba(200, 200, 200, 0.4);
+        border-color: #aaaaaa;
+    }
+
+    body.night-mode .device-item.offline {
+        background: rgba(60, 60, 60, 0.5);
+        border-color: #444444;
+    }
+
+    .device-item.offline .device-status .status-text {
+        color: #888888 !important;
+    }
+
+    body.night-mode .device-item.offline .device-status .status-text {
+        color: #777777 !important;
+    }
+
+    .device-item.offline .device-name i,
+    .device-item.offline .device-name span {
+        color: #888888 !important;
+    }
+
+    body.night-mode .device-item.offline .device-name i,
+    body.night-mode .device-item.offline .device-name span {
+        color: #777777 !important;
+    }
+
+    .device-item.offline .device-detail,
+    .device-item.offline .device-power {
+        color: #888888 !important;
+    }
+
+    body.night-mode .device-item.offline .device-detail,
+    body.night-mode .device-item.offline .device-power {
+        color: #777777 !important;
+    }
+
+    .device-item.offline .progress-bg {
+        background: #d0d0d0;
+    }
+
+    body.night-mode .device-item.offline .progress-bg {
+        background: #3a3a3a;
+    }
+
+    .device-item.offline .progress-fill {
+        background: #a0a0a0 !important;
     }
 </style>
 
@@ -984,49 +1291,28 @@
 
         // ==================== 页面初始化 ====================
         document.addEventListener('DOMContentLoaded', function() {
-            // 获取天气数据
             getWeatherData();
-
-            // 加载自动化场景状态
             loadAutomationStates();
-
-            // 计算实时功率
             calculateTotalPower();
-
-            // 计算平均室温
             calculateAverageRoomTemp();
-
-            // 计算平均湿度
             calculateAverageHumidity();
-
-            // 实时时间更新
             updateDateTime();
             setInterval(updateDateTime, 1000);
-
-            // 每30秒重新计算一次功率、室温和湿度
             setInterval(() => {
                 calculateTotalPower();
                 calculateAverageRoomTemp();
                 calculateAverageHumidity();
             }, 30000);
-
-            // 自动夜间模式检测
-            checkAndApplyAutoNightMode();
-            setInterval(checkAndApplyAutoNightMode, 60000);
-
-            // 初始化各个功能模块
             initRoomTabs();
             initModal();
             initSaveDevice();
             initDeleteDevice();
-            initThemeToggle();
             initLogs();
             initAutomationToggles();
             initDeviceCardClick();
             initDeviceTypeSelect();
             initSignalR();
-
-            // 初始更新统计
+            initAIAssistant();
             updateDeviceStats();
         });
 
@@ -1038,106 +1324,25 @@
                 .configureLogging(signalR.LogLevel.Information)
                 .build();
 
-            // 设备列表更新 - 不再刷新整个页面，而是增量更新
             signalRConnection.on("DevicesUpdated", (devices) => {
                 console.log("收到设备列表更新:", devices);
-                // 不再刷新整个页面，而是更新设备卡片
                 updateDevicesIncremental(devices);
+                updateDeviceStats();
+                calculateTotalPower();
+                calculateAverageRoomTemp();
+                calculateAverageHumidity();
             });
 
             signalRConnection.on("TelemetryUpdated", (deviceId, telemetry) => {
                 console.log(`设备 ${deviceId} 遥测数据更新:`, telemetry);
-
-                const deviceCards = document.querySelectorAll('.device-item');
-                let updatedCard = null;
-
-                deviceCards.forEach(card => {
-                    const deviceIdParts = deviceId.split('-');
-                    if (deviceIdParts.length !== 3) return;
-
-                    const typeAbbr = deviceIdParts[0];
-                    const roomAbbr = deviceIdParts[1];
-
-                    const roomMap = {
-                        'bat': 'bathroom', 'liv': 'living', 'ent': 'entrance',
-                        'kit': 'kitchen', 'mbd': 'master-bedroom', 'sbd': 'second-bedroom', 'din': 'dining'
-                    };
-
-                    const typeMap = {
-                        'lock': 'lock', 'light': 'light', 'hum': 'humidity-sensor',
-                        'temp': 'temp-sensor', 'ac': 'ac', 'cam': 'camera',
-                        'fan': 'fan', 'motor': 'motor'
-                    };
-
-                    const targetRoom = roomMap[roomAbbr];
-                    const targetType = typeMap[typeAbbr];
-
-                    const cardRoom = card.dataset.room;
-                    const cardType = card.dataset.type;
-
-                    if (cardRoom === targetRoom && cardType === targetType) {
-                        updatedCard = card;
-
-                        if (telemetry.isOnline !== undefined) {
-                            updateDeviceOnlineStatus(card, telemetry.isOnline);
-                        }
-
-                        if (telemetry.isOn !== undefined) {
-                            updateDevicePowerStatus(card, telemetry.isOn);
-                        }
-
-                        if (telemetry.temperatureValue !== undefined) {
-                            updateTemperatureDisplay(card, telemetry.temperatureValue);
-                        } else if (telemetry.temperature !== undefined) {
-                            updateTemperatureDisplay(card, telemetry.temperature);
-                        }
-
-                        if (telemetry.humidityValue !== undefined) {
-                            updateHumidityDisplay(card, telemetry.humidityValue);
-                        }
-
-                        if (telemetry.speed !== undefined) {
-                            updateFanSpeedDisplay(card, telemetry.speed);
-                        }
-
-                        if (telemetry.mode !== undefined) {
-                            updateAcModeDisplay(card, telemetry.mode);
-                        }
-
-                        if (telemetry.direction !== undefined) {
-                            updateMotorDirectionDisplay(card, telemetry.direction);
-                        }
-
-                        if (telemetry.batteryLevel !== undefined) {
-                            updateBatteryDisplay(card, telemetry.batteryLevel);
-                        }
-
-                        if (telemetry.power !== undefined) {
-                            updatePowerDisplay(card, telemetry.power);
-                        }
-                    }
-                });
-
-                if (updatedCard) {
-                    console.log(`已更新设备卡片: ${updatedCard.querySelector('.device-name span').textContent}`);
-
-                    calculateAverageHumidity();
-                    calculateAverageRoomTemp();
-                    calculateTotalPower();
-                    updateDeviceStats();
-
-                    // 添加日志但不刷新页面
-                    const deviceName = updatedCard.querySelector('.device-name span').textContent;
-                    if (telemetry.isOnline !== undefined) {
-                        addDeviceLog(deviceName, telemetry.isOnline ? '上线' : '离线', true);
-                    }
-                }
+                updateDeviceFromTelemetry(deviceId, telemetry);
             });
 
             signalRConnection.start()
                 .then(() => {
                     console.log("SignalR 连接成功");
                     showNotification('实时连接成功', 'success');
+                    refreshDeviceListFromServer();
                 })
                 .catch(err => {
                     console.error("SignalR 连接失败:", err.toString());
@@ -1145,180 +1350,196 @@
                 });
         }
 
-        // ==================== 增量更新设备列表 ====================
-        function updateDevicesIncremental(devices) {
-            console.log("增量更新设备列表:", devices);
+        async function refreshDeviceListFromServer() {
+            try {
+                const response = await fetch('/api/devices/list');
+                const data = await response.json();
+                if (data.success && data.devices) {
+                    updateDevicesIncremental(data.devices);
+                }
+            } catch (error) {
+                console.error('刷新设备列表失败:', error);
+            }
+        }
 
-            // 获取当前页面的所有设备卡片
+        function updateDevicesIncremental(devices) {
             const currentCards = document.querySelectorAll('.device-item');
             const currentDeviceIds = new Set();
+            currentCards.forEach(card => currentDeviceIds.add(parseInt(card.dataset.id)));
 
-            currentCards.forEach(card => {
-                currentDeviceIds.add(parseInt(card.dataset.id));
-            });
-
-            // 找出需要添加的新设备
             const newDevices = devices.filter(d => !currentDeviceIds.has(d.id));
+            const removedDeviceIds = Array.from(currentDeviceIds).filter(id => !devices.some(d => d.id === id));
 
-            // 找出需要删除的设备
-            const removedDeviceIds = Array.from(currentDeviceIds).filter(id =>
-                !devices.some(d => d.id === id)
-            );
-
-            // 删除不存在的设备卡片
             removedDeviceIds.forEach(id => {
                 const card = document.querySelector(`.device-item[data-id="${id}"]`);
                 if (card) {
                     card.style.transition = 'all 0.3s ease';
                     card.style.opacity = '0';
                     card.style.transform = 'scale(0.8)';
-
-                    setTimeout(() => {
-                        if (card.parentNode) {
-                            card.remove();
-                            updateDeviceStats();
-                            calculateTotalPower();
-                            calculateAverageRoomTemp();
-                            calculateAverageHumidity();
-                        }
-                    }, 300);
+                    setTimeout(() => { if (card.parentNode) { card.remove(); updateDeviceStats(); calculateTotalPower(); calculateAverageRoomTemp(); calculateAverageHumidity(); } }, 300);
                 }
             });
 
-            // 添加新设备
-            if (newDevices.length > 0) {
-                console.log("检测到新设备:", newDevices);
-                showNotification(`发现 ${newDevices.length} 个新设备，请刷新页面查看`, 'info');
-            }
+            if (newDevices.length > 0) showNotification(`发现 ${newDevices.length} 个新设备，请刷新页面查看`, 'info');
 
-            // 更新现有设备的状态（不刷新页面）
             devices.forEach(device => {
                 const card = document.querySelector(`.device-item[data-id="${device.id}"]`);
-                if (card) {
-                    // 更新数据属性
-                    card.dataset.room = device.roomIdentifier;
-                    card.dataset.type = device.typeIdentifier;
-                    card.dataset.power = device.powerValue;
-
-                    // 更新状态文本
-                    const statusElement = card.querySelector('.device-status');
-                    if (statusElement) {
-                        statusElement.dataset.temperature = device.temperature;
-                        statusElement.dataset.humidity = device.humidity;
-                        statusElement.dataset.speed = device.motorSpeed;
-                        statusElement.dataset.mode = device.mode;
-                        statusElement.dataset.direction = device.direction;
-
-                        // 更新开关状态
-                        if (device.isOn && device.statusText !== "离线") {
-                            statusElement.classList.add('on');
-                            if (!statusElement.querySelector('.fa-circle')) {
-                                const circle = document.createElement('i');
-                                circle.className = 'fas fa-circle';
-                                circle.style.cssText = 'font-size:0.5rem; margin-right:5px; color:#2ecc71;';
-                                statusElement.insertBefore(circle, statusElement.firstChild);
-                            }
-
-                            // 移除离线图标
-                            const offlineIcon = statusElement.querySelector('.fa-power-off');
-                            if (offlineIcon) offlineIcon.remove();
-                        } else {
-                            statusElement.classList.remove('on');
-                            const circle = statusElement.querySelector('.fa-circle');
-                            if (circle) circle.remove();
-
-                            if (device.statusText === "离线" && !statusElement.querySelector('.fa-power-off')) {
-                                const offlineIcon = document.createElement('i');
-                                offlineIcon.className = 'fas fa-power-off';
-                                offlineIcon.style.cssText = 'font-size:0.8rem; margin-right:5px; color:#ff6b6b;';
-                                statusElement.insertBefore(offlineIcon, statusElement.firstChild);
-                            }
-                        }
-
-                        // 更新状态文本
-                        const statusText = statusElement.querySelector('.status-text');
-                        if (statusText) {
-                            statusText.textContent = device.statusText;
-                        }
-                    }
-
-                    // 更新详情文本
-                    const detailText = card.querySelector('.device-detail-text');
-                    if (detailText) {
-                        detailText.textContent = device.detail;
-                    }
-
-                    // 更新功率/电量显示
-                    const powerSpan = card.querySelector('.device-power');
-                    if (powerSpan) {
-                        powerSpan.dataset.powerValue = device.powerValue;
-
-                        // 如果是电池设备，更新电池图标
-                        if (device.typeIdentifier === 'lock' || device.typeIdentifier === 'camera' ||
-                            device.typeIdentifier === 'temp-sensor' || device.typeIdentifier === 'humidity-sensor') {
-                            if (device.humidity) {
-                                const batteryLevel = device.humidity;
-                                const batteryIcon = powerSpan.querySelector('.fa-battery-full, .fa-battery-three-quarters, .fa-battery-half, .fa-battery-quarter, .fa-battery-empty');
-
-                                if (batteryIcon) {
-                                    batteryIcon.className = batteryIcon.className.replace(/fa-battery-\w+/g, '');
-
-                                    if (batteryLevel >= 75) {
-                                        batteryIcon.classList.add('fa-battery-full');
-                                    } else if (batteryLevel >= 50) {
-                                        batteryIcon.classList.add('fa-battery-three-quarters');
-                                    } else if (batteryLevel >= 25) {
-                                        batteryIcon.classList.add('fa-battery-half');
-                                    } else if (batteryLevel >= 10) {
-                                        batteryIcon.classList.add('fa-battery-quarter');
-                                    } else {
-                                        batteryIcon.classList.add('fa-battery-empty');
-                                    }
-
-                                    if (batteryLevel <= 15) {
-                                        batteryIcon.style.color = '#f44336';
-                                    } else if (batteryLevel <= 30) {
-                                        batteryIcon.style.color = '#ff9800';
-                                    } else {
-                                        batteryIcon.style.color = '#4caf50';
-                                    }
-
-                                    batteryIcon.title = `电量 ${batteryLevel}%`;
-                                }
-                            }
-                        } else {
-                            powerSpan.textContent = device.power;
-                        }
-                    }
-
-                    // 更新进度条
-                    const progressFill = card.querySelector('.progress-fill');
-                    if (progressFill) {
-                        progressFill.style.width = device.progress + '%';
-                        if (device.progressColor) {
-                            progressFill.style.background = device.progressColor;
-                        }
-                    }
-
-                    // 更新离线状态
-                    if (device.statusText === "离线") {
-                        card.classList.add('offline');
-                    } else {
-                        card.classList.remove('offline');
-                    }
-                }
+                if (card) updateDeviceCard(card, device);
             });
-
-            // 重新计算统计信息
             updateDeviceStats();
             calculateTotalPower();
             calculateAverageRoomTemp();
             calculateAverageHumidity();
         }
 
-        // ==================== 设备状态更新函数 ====================
+        function updateDeviceCard(card, device) {
+            card.dataset.room = device.roomIdentifier;
+            card.dataset.type = device.typeIdentifier;
+            card.dataset.power = device.powerValue;
+            card.dataset.fullId = device.fullDeviceId;
 
-        // 获取模式文本
+            const statusElement = card.querySelector('.device-status');
+            if (statusElement) {
+                // 更新新字段
+                statusElement.dataset.temperatureValue = device.temperatureValue;
+                statusElement.dataset.humidityValue = device.humidityValue;
+                statusElement.dataset.batteryLevel = device.batteryLevel;
+                statusElement.dataset.acTemperature = device.acTemperature;
+                statusElement.dataset.acMode = device.acMode;
+                statusElement.dataset.fanSpeed = device.fanSpeed;
+                statusElement.dataset.motorSpeed = device.motorSpeed;
+                statusElement.dataset.motorDirection = device.motorDirection;
+                statusElement.dataset.brightness = device.brightness;
+                
+                // 兼容旧字段
+                statusElement.dataset.temperature = device.temperature;
+                statusElement.dataset.humidity = device.humidity;
+                statusElement.dataset.mode = device.mode;
+                statusElement.dataset.direction = device.direction;
+                statusElement.dataset.speed = device.motorSpeed;
+
+                const isOn = device.isOn && device.statusText !== "离线";
+                updateDevicePowerStatus(card, isOn);
+
+                const statusText = statusElement.querySelector('.status-text');
+                if (statusText) {
+                    if (device.statusText === "离线") {
+                        statusText.textContent = "离线";
+                    } else {
+                        switch(device.typeIdentifier) {
+                            case 'temp-sensor':
+                                var temp = device.temperatureValue || device.temperature;
+                                statusText.textContent = temp ? `温度 ${parseFloat(temp).toFixed(1)}°C` : "--";
+                                break;
+                            case 'humidity-sensor':
+                                var hum = device.humidityValue || device.temperature;
+                                statusText.textContent = hum ? `湿度 ${Math.round(hum)}%` : "--";
+                                break;
+                            case 'light':
+                                statusText.textContent = device.isOn ? "开启" : "关闭";
+                                break;
+                            case 'ac':
+                                if (device.isOn) {
+                                    const modeText = getModeText(device.acMode || device.mode);
+                                    const temp = device.acTemperature || device.temperature || 24;
+                                    statusText.textContent = `${modeText} ${temp}°C`;
+                                } else {
+                                    statusText.textContent = "关闭";
+                                }
+                                break;
+                            case 'fan':
+                                if (device.isOn) {
+                                    const speed = device.fanSpeed || device.motorSpeed || 3;
+                                    statusText.textContent = `风速 ${speed}档`;
+                                } else {
+                                    statusText.textContent = "关闭";
+                                }
+                                break;
+                            case 'lock':
+                                statusText.textContent = device.isOn ? "已上锁" : "未上锁";
+                                break;
+                            case 'motor':
+                                if (device.isOn) {
+                                    const direction = device.motorDirection || device.direction || "stop";
+                                    statusText.textContent = direction === "forward" ? "正转" : direction === "reverse" ? "反转" : "停止";
+                                } else {
+                                    statusText.textContent = "停止";
+                                }
+                                break;
+                            case 'camera':
+                                statusText.textContent = device.isOn ? "在线" : "离线";
+                                break;
+                            default:
+                                statusText.textContent = device.isOn ? "开启" : "关闭";
+                                break;
+                        }
+                    }
+                }
+            }
+
+            const detailText = card.querySelector('.device-detail-text');
+            if (detailText) {
+                if (device.statusText === "离线") {
+                    detailText.textContent = "设备离线";
+                } else {
+                    switch(device.typeIdentifier) {
+                        case 'humidity-sensor':
+                            detailText.textContent = "湿度传感器 · 在线";
+                            break;
+                        case 'temp-sensor':
+                            detailText.textContent = "温度传感器 · 在线";
+                            break;
+                        default:
+                            detailText.textContent = device.detail;
+                            break;
+                    }
+                }
+            }
+
+            const powerSpan = card.querySelector('.device-power');
+            if (powerSpan) {
+                powerSpan.dataset.powerValue = device.powerValue;
+                // 更新电池图标
+                var batteryDevices = ['temp-sensor', 'humidity-sensor', 'lock', 'camera'];
+                if (batteryDevices.includes(device.typeIdentifier)) {
+                    var batteryLevel = device.batteryLevel || device.humidity;
+                    if (batteryLevel) {
+                        updateBatteryIcon(powerSpan, batteryLevel);
+                    }
+                }
+            }
+
+            const progressFill = card.querySelector('.progress-fill');
+            if (progressFill) progressFill.style.width = device.progress + '%';
+
+            if (device.statusText === "离线") {
+                card.classList.add('offline');
+            } else {
+                card.classList.remove('offline');
+            }
+        }
+
+        function updateBatteryIcon(element, batteryLevel) {
+            var icon = element.querySelector('i');
+            if (!icon) {
+                icon = document.createElement('i');
+                icon.className = 'fas';
+                element.innerHTML = '';
+                element.appendChild(icon);
+            }
+            
+            var batteryIcon = batteryLevel >= 75 ? 'fa-battery-full' :
+                              batteryLevel >= 50 ? 'fa-battery-three-quarters' :
+                              batteryLevel >= 25 ? 'fa-battery-half' :
+                              batteryLevel >= 10 ? 'fa-battery-quarter' : 'fa-battery-empty';
+            var batteryColor = batteryLevel <= 15 ? '#f44336' :
+                               batteryLevel <= 30 ? '#ff9800' : '#4caf50';
+            
+            icon.className = `fas ${batteryIcon}`;
+            icon.style.color = batteryColor;
+            icon.title = `电量 ${batteryLevel}%`;
+        }
+
         function getModeText(mode) {
             switch(mode) {
                 case 'cool': return '制冷';
@@ -1326,11 +1547,10 @@
                 case 'fan': return '送风';
                 case 'dry': return '除湿';
                 case 'auto': return '自动';
-                default: return mode;
+                default: return mode || '制冷';
             }
         }
 
-        // 更新设备开关状态
         function updateDevicePowerStatus(card, isOn) {
             const statusElement = card.querySelector('.device-status');
             const statusText = statusElement?.querySelector('.status-text');
@@ -1345,677 +1565,858 @@
                         circle.style.cssText = 'font-size:0.5rem; margin-right:5px; color:#2ecc71;';
                         statusElement.insertBefore(circle, statusElement.firstChild);
                     }
+                    const offlineIcon = statusElement.querySelector('.fa-power-off');
+                    if (offlineIcon) offlineIcon.remove();
                 } else {
                     statusElement.classList.remove('on');
                     const circle = statusElement.querySelector('.fa-circle');
                     if (circle) circle.remove();
                 }
-
                 statusElement.dataset.isOn = isOn;
-            }
-
-            if (statusText) {
-                switch(deviceType) {
-                    case 'lock':
-                        statusText.textContent = isOn ? '已上锁' : '未上锁';
-                        break;
-
-                    case 'ac':
-                        if (isOn) {
-                            const mode = statusElement.dataset.mode || 'cool';
-                            const temperature = statusElement.dataset.temperature || '23';
-                            const modeText = getModeText(mode);
-                            statusText.textContent = `${modeText} ${temperature}°C`;
-                        } else {
-                            statusText.textContent = '关闭';
-                        }
-                        break;
-
-                    case 'temp-sensor':
-                        if (isOn) {
-                            const temperature = statusElement.dataset.temperature;
-                            statusText.textContent = temperature ? `温度 ${parseFloat(temperature).toFixed(1)}°C` : '在线';
-                        } else {
-                            statusText.textContent = '离线';
-                        }
-                        break;
-
-                    case 'humidity-sensor':
-                        if (isOn) {
-                            const humidity = statusElement.dataset.humidity;
-                            statusText.textContent = humidity ? `湿度 ${humidity}%` : '在线';
-                        } else {
-                            statusText.textContent = '离线';
-                        }
-                        break;
-
-                    case 'fan':
-                        if (isOn) {
-                            const speed = statusElement.dataset.speed;
-                            statusText.textContent = speed ? `风速 ${speed}档` : '运行中';
-                        } else {
-                            statusText.textContent = '关闭';
-                        }
-                        break;
-
-                    case 'motor':
-                        if (isOn) {
-                            const direction = statusElement.dataset.direction;
-                            if (direction === 'forward') {
-                                statusText.textContent = '正转';
-                            } else if (direction === 'reverse') {
-                                statusText.textContent = '反转';
-                            } else {
-                                statusText.textContent = '停止';
-                            }
-                        } else {
-                            statusText.textContent = '停止';
-                        }
-                        break;
-
-                    case 'light':
-                        statusText.textContent = isOn ? '开启' : '关闭';
-                        break;
-
-                    case 'camera':
-                        statusText.textContent = isOn ? '在线' : '离线';
-                        break;
-
-                    default:
-                        statusText.textContent = isOn ? '开启' : '待机';
-                        break;
-                }
             }
         }
 
-        // 更新温度显示
+        function updateDeviceFromTelemetry(deviceId, telemetry) {
+            const deviceCards = document.querySelectorAll('.device-item');
+            deviceCards.forEach(card => {
+                const fullId = card.dataset.fullId;
+                if (fullId === deviceId) {
+                    if (telemetry.isOnline !== undefined) updateDeviceOnlineStatus(card, telemetry.isOnline);
+                    if (telemetry.isOn !== undefined) updateDevicePowerStatus(card, telemetry.isOn);
+                    
+                    // 温度传感器
+                    if (telemetry.temperatureValue !== undefined) {
+                        updateTemperatureDisplay(card, telemetry.temperatureValue);
+                    }
+                    // 湿度传感器
+                    if (telemetry.humidityValue !== undefined) {
+                        updateHumidityDisplay(card, telemetry.humidityValue);
+                    }
+                    // 电池电量
+                    if (telemetry.batteryLevel !== undefined) {
+                        updateBatteryLevelDisplay(card, telemetry.batteryLevel);
+                    }
+                    // 风扇转速
+                    if (telemetry.speed !== undefined) {
+                        updateFanSpeedDisplay(card, telemetry.speed);
+                    }
+                    // 空调模式
+                    if (telemetry.mode !== undefined) {
+                        updateAcModeDisplay(card, telemetry.mode);
+                    }
+                    // 空调温度
+                    if (telemetry.temperature !== undefined) {
+                        updateAcTemperatureDisplay(card, telemetry.temperature);
+                    }
+                    // 电机方向
+                    if (telemetry.direction !== undefined) {
+                        updateMotorDirectionDisplay(card, telemetry.direction);
+                    }
+                    if (telemetry.power !== undefined) {
+                        updatePowerDisplay(card, telemetry.power);
+                    }
+                    
+                    calculateAverageHumidity();
+                    calculateAverageRoomTemp();
+                    calculateTotalPower();
+                    updateDeviceStats();
+                }
+            });
+        }
+
         function updateTemperatureDisplay(card, temperature) {
             const statusElement = card.querySelector('.device-status');
             const statusText = statusElement?.querySelector('.status-text');
             const deviceType = card.dataset.type;
-
             if (statusElement) {
+                statusElement.dataset.temperatureValue = temperature;
                 statusElement.dataset.temperature = temperature;
             }
-
-            if (statusText) {
-                const isOn = statusElement.classList.contains('on');
-                if (deviceType === 'temp-sensor' && isOn) {
-                    statusText.textContent = `温度 ${temperature.toFixed(1)}°C`;
-                } else if (deviceType === 'ac' && isOn) {
-                    const mode = statusElement.dataset.mode || 'cool';
-                    const modeText = getModeText(mode);
-                    statusText.textContent = `${modeText} ${temperature.toFixed(0)}°C`;
-                }
-            }
-
-            if (deviceType === 'ac') {
-                const detailText = card.querySelector('.device-detail-text');
-                if (detailText) {
-                    const mode = statusElement.dataset.mode || 'cool';
-                    const modeText = getModeText(mode);
-                    detailText.textContent = `模式: ${modeText} · ${temperature.toFixed(0)}°C · 风速中`;
-                }
+            if (statusText && deviceType === 'temp-sensor' && statusElement.classList.contains('on')) {
+                statusText.textContent = `温度 ${parseFloat(temperature).toFixed(1)}°C`;
             }
         }
 
-        // 更新湿度显示
         function updateHumidityDisplay(card, humidity) {
             const statusElement = card.querySelector('.device-status');
             const statusText = statusElement?.querySelector('.status-text');
             const deviceType = card.dataset.type;
-
             if (statusElement) {
-                statusElement.dataset.humidity = Math.round(humidity);
+                statusElement.dataset.humidityValue = humidity;
+                statusElement.dataset.temperature = humidity;
             }
-
-            if (statusText && deviceType === 'humidity-sensor' && card.querySelector('.device-status')?.classList.contains('on')) {
+            if (statusText && deviceType === 'humidity-sensor' && statusElement.classList.contains('on')) {
                 statusText.textContent = `湿度 ${Math.round(humidity)}%`;
-            }
-
-            if (deviceType === 'lock') {
-                updateBatteryDisplay(card, Math.round(humidity));
             }
         }
 
-        // 更新风扇转速显示
+        function updateBatteryLevelDisplay(card, batteryLevel) {
+            const powerSpan = card.querySelector('.device-power');
+            if (powerSpan) {
+                updateBatteryIcon(powerSpan, batteryLevel);
+                const statusElement = card.querySelector('.device-status');
+                if (statusElement) {
+                    statusElement.dataset.batteryLevel = batteryLevel;
+                    statusElement.dataset.humidity = batteryLevel;
+                }
+            }
+        }
+
         function updateFanSpeedDisplay(card, speed) {
             const statusElement = card.querySelector('.device-status');
             const statusText = statusElement?.querySelector('.status-text');
-            const deviceType = card.dataset.type;
-
             if (statusElement) {
+                statusElement.dataset.fanSpeed = speed;
                 statusElement.dataset.speed = speed;
             }
-
-            if (statusText && deviceType === 'fan' && card.querySelector('.device-status')?.classList.contains('on')) {
+            if (statusText && card.dataset.type === 'fan' && statusElement.classList.contains('on')) {
                 statusText.textContent = `风速 ${speed}档`;
             }
         }
 
-        // 更新空调模式
         function updateAcModeDisplay(card, mode) {
             const statusElement = card.querySelector('.device-status');
             const statusText = statusElement?.querySelector('.status-text');
-            const deviceType = card.dataset.type;
-
-            if (statusElement) {
-                statusElement.dataset.mode = mode;
-            }
-
-            if (statusText && deviceType === 'ac') {
-                const isOn = statusElement.classList.contains('on');
-                if (isOn) {
-                    const temperature = statusElement.dataset.temperature || '23';
-                    const modeText = getModeText(mode);
-                    statusText.textContent = `${modeText} ${temperature}°C`;
-                }
-            }
-
-            const detailText = card.querySelector('.device-detail-text');
-            if (detailText) {
-                const temperature = statusElement.dataset.temperature || '23';
+            if (statusElement) statusElement.dataset.acMode = mode;
+            if (statusText && card.dataset.type === 'ac' && statusElement.classList.contains('on')) {
+                const temp = statusElement.dataset.acTemperature || statusElement.dataset.temperature || 24;
                 const modeText = getModeText(mode);
-                detailText.textContent = `模式: ${modeText} · ${temperature}°C · 风速中`;
+                statusText.textContent = `${modeText} ${temp}°C`;
             }
         }
 
-        // 更新电机方向显示
+        function updateAcTemperatureDisplay(card, temperature) {
+            const statusElement = card.querySelector('.device-status');
+            const statusText = statusElement?.querySelector('.status-text');
+            if (statusElement) {
+                statusElement.dataset.acTemperature = temperature;
+                statusElement.dataset.temperature = temperature;
+            }
+            if (statusText && card.dataset.type === 'ac' && statusElement.classList.contains('on')) {
+                const mode = statusElement.dataset.acMode || 'cool';
+                const modeText = getModeText(mode);
+                statusText.textContent = `${modeText} ${Math.round(temperature)}°C`;
+            }
+        }
+
         function updateMotorDirectionDisplay(card, direction) {
             const statusElement = card.querySelector('.device-status');
             const statusText = statusElement?.querySelector('.status-text');
-            const deviceType = card.dataset.type;
-
             if (statusElement) {
+                statusElement.dataset.motorDirection = direction;
                 statusElement.dataset.direction = direction;
             }
-
-            if (statusText && deviceType === 'motor' && card.querySelector('.device-status')?.classList.contains('on')) {
-                if (direction === 'forward') {
-                    statusText.textContent = '正转';
-                } else if (direction === 'reverse') {
-                    statusText.textContent = '反转';
-                } else {
-                    statusText.textContent = '停止';
-                }
+            if (statusText && card.dataset.type === 'motor' && statusElement.classList.contains('on')) {
+                statusText.textContent = direction === 'forward' ? '正转' : direction === 'reverse' ? '反转' : '停止';
             }
         }
 
-        // 更新功率显示
         function updatePowerDisplay(card, power) {
             const powerSpan = card.querySelector('.device-power');
             if (powerSpan && !powerSpan.querySelector('i')) {
-                const powerValue = power / 1000;
-                powerSpan.dataset.powerValue = powerValue;
-
-                if (power >= 1000) {
-                    powerSpan.textContent = (power / 1000).toFixed(2) + 'kW';
-                } else {
-                    powerSpan.textContent = Math.round(power) + 'W';
-                }
+                if (power >= 1000) powerSpan.textContent = (power / 1000).toFixed(2) + 'kW';
+                else powerSpan.textContent = Math.round(power) + 'W';
+                powerSpan.dataset.powerValue = power / 1000;
             }
         }
 
-        // 更新电量显示
-        function updateBatteryDisplay(card, batteryLevel) {
-            const powerSpan = card.querySelector('.device-power');
-            if (powerSpan) {
-                const batteryIcon = powerSpan.querySelector('.fa-battery-full, .fa-battery-three-quarters, .fa-battery-half, .fa-battery-quarter, .fa-battery-empty');
-                if (batteryIcon) {
-                    batteryIcon.className = batteryIcon.className.replace(/fa-battery-\w+/g, '');
-
-                    if (batteryLevel >= 75) {
-                        batteryIcon.classList.add('fa-battery-full');
-                    } else if (batteryLevel >= 50) {
-                        batteryIcon.classList.add('fa-battery-three-quarters');
-                    } else if (batteryLevel >= 25) {
-                        batteryIcon.classList.add('fa-battery-half');
-                    } else if (batteryLevel >= 10) {
-                        batteryIcon.classList.add('fa-battery-quarter');
-                    } else {
-                        batteryIcon.classList.add('fa-battery-empty');
-                    }
-
-                    if (batteryLevel <= 15) {
-                        batteryIcon.style.color = '#f44336';
-                    } else if (batteryLevel <= 30) {
-                        batteryIcon.style.color = '#ff9800';
-                    } else {
-                        batteryIcon.style.color = '#4caf50';
-                    }
-
-                    batteryIcon.title = `电量 ${batteryLevel}%`;
-                }
-            }
-        }
-
-        // 更新设备在线状态
         function updateDeviceOnlineStatus(card, isOnline) {
             const statusElement = card.querySelector('.device-status');
             const statusText = statusElement?.querySelector('.status-text');
 
             if (isOnline) {
                 card.classList.remove('offline');
-
                 const deleteIcon = card.querySelector('.delete-device');
                 if (deleteIcon) {
                     deleteIcon.style.opacity = '1';
                     deleteIcon.style.pointerEvents = 'auto';
                 }
-
-                const offlineIcon = card.querySelector('.fa-power-off');
-                if (offlineIcon) {
-                    offlineIcon.remove();
-                }
-
-                if (statusElement) {
-                    const isOn = statusElement.classList.contains('on');
-                    updateDevicePowerStatus(card, isOn);
-                }
-
-                const detailText = card.querySelector('.device-detail-text');
-                if (detailText && detailText.dataset.originalText) {
-                    detailText.textContent = detailText.dataset.originalText;
-                }
+                const offlineIcon = statusElement?.querySelector('.fa-power-off');
+                if (offlineIcon) offlineIcon.remove();
             } else {
                 card.classList.add('offline');
-
                 const deleteIcon = card.querySelector('.delete-device');
                 if (deleteIcon) {
                     deleteIcon.style.opacity = '0.3';
-                    deleteIcon.style.pointerEvents = 'none';
+                    deleteIcon.style.pointerEvents =none';
                 }
-
-                if (statusText) {
+                if (statusText && statusText.textContent !== "离线") {
                     statusText.textContent = '离线';
                 }
-
                 if (statusElement && !statusElement.querySelector('.fa-power-off')) {
                     const offlineIcon = document.createElement('i');
                     offlineIcon.className = 'fas fa-power-off';
                     offlineIcon.style.cssText = 'font-size:0.8rem; margin-right:5px; color:#ff6b6b;';
                     statusElement.insertBefore(offlineIcon, statusElement.firstChild);
                 }
-
-                const detailText = card.querySelector('.device-detail-text');
-                if (detailText && !detailText.dataset.originalText) {
-                    detailText.dataset.originalText = detailText.textContent;
-                    detailText.textContent = '设备离线';
-                }
+                const greenDot = statusElement?.querySelector('.fa-circle');
+                if (greenDot) greenDot.remove();
             }
-        }
-
-        // ==================== 设备类型选择 ====================
-        function initDeviceTypeSelect() {
-            const deviceTypeSelect = document.getElementById('deviceType');
-            const sensorTempGroup = document.getElementById('sensorTempGroup');
-            const sensorHumidityGroup = document.getElementById('sensorHumidityGroup');
-            const motorSpeedGroup = document.getElementById('motorSpeedGroup');
-
-            if (deviceTypeSelect) {
-                deviceTypeSelect.addEventListener('change', function() {
-                    if (sensorTempGroup) sensorTempGroup.style.display = 'none';
-                    if (sensorHumidityGroup) sensorHumidityGroup.style.display = 'none';
-                    if (motorSpeedGroup) motorSpeedGroup.style.display = 'none';
-
-                    if (this.value === 'temp-sensor' && sensorTempGroup) {
-                        sensorTempGroup.style.display = 'block';
-                    } else if (this.value === 'humidity-sensor' && sensorHumidityGroup) {
-                        sensorHumidityGroup.style.display = 'block';
-                    } else if (this.value === 'motor' && motorSpeedGroup) {
-                        motorSpeedGroup.style.display = 'block';
-                    }
-                });
-            }
-        }
-
-        // ==================== 计算平均室温 ====================
-        function calculateAverageRoomTemp() {
-            const tempElements = document.querySelectorAll('.device-item[data-type="temp-sensor"] .status-text');
-            let totalTemp = 0;
-            let count = 0;
-
-            tempElements.forEach(element => {
-                const text = element.textContent || '';
-                if (text.includes('温度')) {
-                    const temp = parseFloat(text.replace('温度', '').replace('°C', '').trim());
-                    if (!isNaN(temp)) {
-                        totalTemp += temp;
-                        count++;
-                    }
-                }
-            });
-
-            const avgTempElement = document.getElementById('averageRoomTemp');
-            if (count > 0) {
-                const avgTemp = (totalTemp / count).toFixed(1);
-                avgTempElement.textContent = avgTemp;
-            } else {
-                avgTempElement.textContent = '--';
-            }
-        }
-
-        // ==================== 计算平均湿度 ====================
-        function calculateAverageHumidity() {
-            const humidityElements = document.querySelectorAll('.device-item[data-type="humidity-sensor"] .status-text');
-            let totalHumidity = 0;
-            let count = 0;
-
-            humidityElements.forEach(element => {
-                const text = element.textContent || '';
-                if (text.includes('湿度')) {
-                    const humidity = parseInt(text.replace('湿度', '').replace('%', '').trim());
-                    if (!isNaN(humidity)) {
-                        totalHumidity += humidity;
-                        count++;
-                    }
-                }
-            });
-
-            const avgHumidityElement = document.getElementById('averageHumidity');
-            if (count > 0) {
-                const avgHumidity = Math.round(totalHumidity / count);
-                avgHumidityElement.textContent = avgHumidity;
-            } else {
-                avgHumidityElement.textContent = '--';
-            }
-        }
-
-        // ==================== 实时功率计算 ====================
-        function calculateTotalPower() {
-            const deviceItems = document.querySelectorAll('.device-item');
-            let totalPowerKW = 0;
-
-            deviceItems.forEach(device => {
-                const deviceType = device.dataset.type;
-                if (deviceType === 'temp-sensor' || deviceType === 'humidity-sensor') return;
-
-                if (device.classList.contains('offline')) return;
-
-                const powerElement = device.querySelector('.device-power');
-                const statusElement = device.querySelector('.device-status');
-                const isOn = statusElement && statusElement.classList.contains('on');
-
-                if (isOn && powerElement && !powerElement.querySelector('i')) {
-                    const powerValue = parseFloat(powerElement.dataset.powerValue);
-                    if (!isNaN(powerValue)) {
-                        totalPowerKW += powerValue;
-                    }
-                }
-            });
-
-            totalPowerKW = Math.round(totalPowerKW * 100) / 100;
-
-            const powerDisplay = document.getElementById('realTimePower');
-            if (powerDisplay) {
-                powerDisplay.textContent = totalPowerKW.toFixed(2);
-            }
-
-            if (powerHistory.length > 0) {
-                const lastPower = powerHistory[powerHistory.length - 1];
-                const changePercent = lastPower > 0 ? ((totalPowerKW - lastPower) / lastPower * 100).toFixed(1) : 0;
-
-                const trendElement = document.getElementById('powerTrend');
-                if (trendElement) {
-                    if (changePercent > 0) {
-                        trendElement.innerHTML = `<i class="fas fa-arrow-up"></i> ${changePercent}%`;
-                        trendElement.style.color = '#f44336';
-                    } else if (changePercent < 0) {
-                        trendElement.innerHTML = `<i class="fas fa-arrow-down"></i> ${Math.abs(changePercent)}%`;
-                        trendElement.style.color = '#4caf50';
-                    } else {
-                        trendElement.innerHTML = `<i class="fas fa-minus"></i> 0%`;
-                        trendElement.style.color = '#1e8f6b';
-                    }
-                }
-            }
-
-            powerHistory.push(totalPowerKW);
-            if (powerHistory.length > 24) {
-                powerHistory.shift();
-            }
-        }
-
-        // ==================== 获取天气数据（自动定位）====================
-        // 城市名称映射表
-        const cityNameMap = {
-            'beijing': '北京', 'shanghai': '上海', 'tianjin': '天津', 'chongqing': '重庆',
-            'jiangxi': '江西', 'nanchang': '南昌', 'jiujiang': '九江', 'ganzhou': '赣州',
-            'guangdong': '广东', 'guangzhou': '广州', 'shenzhen': '深圳',
-            'jiangsu': '江苏', 'nanjing': '南京', 'suzhou': '苏州',
-            'zhejiang': '浙江', 'hangzhou': '杭州', 'ningbo': '宁波',
-            'fujian': '福建', 'fuzhou': '福州', 'xiamen': '厦门'
-        };
-
-        async function getWeatherData() {
-            try {
-                // 先通过IP获取用户位置
-                const ipResponse = await fetch('https://ipapi.co/json/');
-
-                if (!ipResponse.ok) {
-                    throw new Error('IP定位失败');
-                }
-
-                const ipData = await ipResponse.json();
-                console.log('IP定位信息:', ipData);
-
-                // 提取位置信息
-                const city = ipData.city || ipData.region || '未知';
-                const region = ipData.region || '';
-                const latitude = ipData.latitude;
-                const longitude = ipData.longitude;
-
-                // 转换城市名称为中文
-                let displayCity = city;
-
-                if (city.includes('-')) {
-                    const parts = city.split('-');
-                    const lastPart = parts[parts.length - 1].toLowerCase();
-                    displayCity = cityNameMap[lastPart] || lastPart;
-                } else if (cityNameMap[city.toLowerCase()]) {
-                    displayCity = cityNameMap[city.toLowerCase()];
-                }
-
-                document.getElementById('cityName').textContent = displayCity;
-
-                // 如果有坐标，获取天气数据
-                if (latitude && longitude) {
-                    await getWeatherByCoordinates(latitude, longitude, displayCity);
-                } else {
-                    document.getElementById('cityName').textContent = '北京';
-                    await getWeatherByCoordinates(39.9042, 116.4074, '北京');
-                }
-
-            } catch (error) {
-                console.error('获取位置失败:', error);
-                document.getElementById('cityName').textContent = '北京';
-                await getWeatherByCoordinates(39.9042, 116.4074, '北京');
-            }
-        }
-
-        async function getWeatherByCoordinates(lat, lon, cityName) {
-            try {
-                const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weathercode,wind_speed_10m&timezone=auto`;
-
-                const weatherResponse = await fetch(weatherUrl);
-
-                if (!weatherResponse.ok) {
-                    throw new Error('天气API请求失败');
-                }
-
-                const weatherData = await weatherResponse.json();
-
-                if (weatherData && weatherData.current) {
-                    const temperature = Math.round(weatherData.current.temperature_2m);
-                    const humidity = weatherData.current.relative_humidity_2m;
-                    const weatherCode = weatherData.current.weathercode;
-
-                    const weatherInfo = getWeatherInfo(weatherCode);
-
-                    document.getElementById('weatherTemp').textContent = `${temperature}°C`;
-                    document.getElementById('weatherDesc').textContent = weatherInfo.description;
-                    document.getElementById('humidityValue').textContent = humidity;
-                    document.getElementById('weatherIcon').className = `fas ${weatherInfo.icon}`;
-
-                    const tempElement = document.getElementById('weatherTemp');
-                    tempElement.classList.remove('high-temp', 'low-temp');
-                    if (temperature >= 30) {
-                        tempElement.classList.add('high-temp');
-                    } else if (temperature <= 10) {
-                        tempElement.classList.add('low-temp');
-                    }
-                }
-            } catch (error) {
-                console.error('获取天气数据失败:', error);
-                throw error;
-            }
-        }
-
-        function getWeatherInfo(code) {
-            const weatherMap = {
-                0: { icon: 'fa-sun', description: '晴朗' },
-                1: { icon: 'fa-sun', description: '晴朗' },
-                2: { icon: 'fa-cloud-sun', description: '晴间多云' },
-                3: { icon: 'fa-cloud', description: '多云' },
-                45: { icon: 'fa-smog', description: '有雾' },
-                48: { icon: 'fa-smog', description: '雾凇' },
-                51: { icon: 'fa-cloud-rain', description: '毛毛雨' },
-                53: { icon: 'fa-cloud-rain', description: '小雨' },
-                55: { icon: 'fa-cloud-rain', description: '中雨' },
-                61: { icon: 'fa-cloud-rain', description: '小雨' },
-                63: { icon: 'fa-cloud-rain', description: '中雨' },
-                65: { icon: 'fa-cloud-showers-heavy', description: '大雨' },
-                71: { icon: 'fa-snowflake', description: '小雪' },
-                73: { icon: 'fa-snowflake', description: '中雪' },
-                75: { icon: 'fa-snowflake', description: '大雪' },
-                80: { icon: 'fa-cloud-rain', description: '阵雨' },
-                81: { icon: 'fa-cloud-rain', description: '中阵雨' },
-                82: { icon: 'fa-cloud-showers-heavy', description: '强阵雨' },
-                85: { icon: 'fa-snowflake', description: '阵雪' },
-                86: { icon: 'fa-snowflake', description: '强阵雪' },
-                95: { icon: 'fa-bolt', description: '雷雨' },
-                96: { icon: 'fa-bolt', description: '雷雨伴冰雹' },
-                99: { icon: 'fa-bolt', description: '强雷雨' }
-            };
-            return weatherMap[code] || { icon: 'fa-cloud-sun', description: '未知' };
         }
 
         // ==================== 设备卡片点击事件 ====================
         function initDeviceCardClick() {
             document.querySelectorAll('.device-item').forEach(card => {
-                card.addEventListener('click', function(e) {
+                card.addEventListener('click', async function(e) {
                     if (e.target.closest('.delete-device')) return;
                     if (this.classList.contains('offline')) {
                         showNotification('设备已离线，无法设置', 'warning');
                         return;
                     }
-
                     const deviceId = this.dataset.id;
                     const deviceName = this.querySelector('.device-name span').textContent;
                     const deviceType = this.dataset.type;
-
                     openDeviceSettings(deviceId, deviceName, deviceType);
                 });
             });
         }
 
-        // ==================== 打开设备设置 ====================
+        // ==================== KPI 计算函数 ====================
+        function calculateAverageRoomTemp() {
+            const tempElements = document.querySelectorAll('.device-item[data-type="temp-sensor"] .status-text');
+            let totalTemp = 0, count = 0;
+            tempElements.forEach(el => {
+                const text = el.textContent || '';
+                if (text.includes('温度')) {
+                    const temp = parseFloat(text.replace('温度', '').replace('°C', '').trim());
+                    if (!isNaN(temp)) { totalTemp += temp; count++; }
+                }
+            });
+            const avgTempElement = document.getElementById('averageRoomTemp');
+            if (avgTempElement) avgTempElement.textContent = count > 0 ? (totalTemp / count).toFixed(1) : '--';
+        }
+
+        function calculateAverageHumidity() {
+            const humidityElements = document.querySelectorAll('.device-item[data-type="humidity-sensor"] .status-text');
+            let totalHumidity = 0, count = 0;
+            humidityElements.forEach(el => {
+                const text = el.textContent || '';
+                if (text.includes('湿度')) {
+                    const humidity = parseInt(text.replace('湿度', '').replace('%', '').trim());
+                    if (!isNaN(humidity)) { totalHumidity += humidity; count++; }
+                }
+            });
+            const avgHumidityElement = document.getElementById('averageHumidity');
+            if (avgHumidityElement) avgHumidityElement.textContent = count > 0 ? Math.round(totalHumidity / count) : '--';
+        }
+
+        function calculateTotalPower() {
+            const deviceItems = document.querySelectorAll('.device-item');
+            let totalPowerKW = 0;
+            deviceItems.forEach(device => {
+                const deviceType = device.dataset.type;
+                if (deviceType === 'temp-sensor' || deviceType === 'humidity-sensor') return;
+                if (device.classList.contains('offline')) return;
+                const powerElement = device.querySelector('.device-power');
+                const statusElement = device.querySelector('.device-status');
+                const isOn = statusElement && statusElement.classList.contains('on');
+                if (isOn && powerElement && !powerElement.querySelector('i')) {
+                    const powerValue = parseFloat(powerElement.dataset.powerValue);
+                    if (!isNaN(powerValue)) totalPowerKW += powerValue;
+                }
+            });
+            totalPowerKW = Math.round(totalPowerKW * 100) / 100;
+            const powerDisplay = document.getElementById('realTimePower');
+            if (powerDisplay) powerDisplay.textContent = totalPowerKW.toFixed(2);
+            if (powerHistory.length > 0) {
+                const lastPower = powerHistory[powerHistory.length - 1];
+                const changePercent = lastPower > 0 ? ((totalPowerKW - lastPower) / lastPower * 100).toFixed(1) : 0;
+                const trendElement = document.getElementById('powerTrend');
+                if (trendElement) {
+                    if (changePercent > 0) { trendElement.innerHTML = `<i class="fas fa-arrow-up"></i> ${changePercent}%`; trendElement.style.color = '#f44336'; }
+                    else if (changePercent < 0) { trendElement.innerHTML = `<i class="fas fa-arrow-down"></i> ${Math.abs(changePercent)}%`; trendElement.style.color = '#4caf50'; }
+                    else { trendElement.innerHTML = `<i class="fas fa-minus"></i> 0%`; trendElement.style.color = '#1e8f6b'; }
+                }
+            }
+            powerHistory.push(totalPowerKW);
+            if (powerHistory.length > 24) powerHistory.shift();
+        }
+
+        // ==================== 天气功能 ====================
+        async function getWeatherData() {
+            try {
+                const ipResponse = await fetch('https://ipapi.co/json/');
+                if (!ipResponse.ok) throw new Error('IP定位失败');
+                const ipData = await ipResponse.json();
+                const city = ipData.city || ipData.region || '未知';
+                const latitude = ipData.latitude;
+                const longitude = ipData.longitude;
+                const cityNameMap = { 'beijing': '北京', 'shanghai': '上海', 'nanchang': '南昌', 'guangzhou': '广州', 'shenzhen': '深圳' };
+                let displayCity = city;
+                if (city.includes('-')) { const parts = city.split('-'); const lastPart = parts[parts.length-1].toLowerCase(); displayCity = cityNameMap[lastPart] || lastPart; }
+                else if (cityNameMap[city.toLowerCase()]) displayCity = cityNameMap[city.toLowerCase()];
+                document.getElementById('cityName').textContent = displayCity;
+                if (latitude && longitude) await getWeatherByCoordinates(latitude, longitude);
+                else await getWeatherByCoordinates(39.9042, 116.4074);
+            } catch (error) {
+                console.error('获取位置失败:', error);
+                document.getElementById('cityName').textContent = '北京';
+                await getWeatherByCoordinates(39.9042, 116.4074);
+            }
+        }
+
+        async function getWeatherByCoordinates(lat, lon) {
+            try {
+                const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weathercode&timezone=auto`;
+                const weatherResponse = await fetch(weatherUrl);
+                if (!weatherResponse.ok) throw new Error('天气API请求失败');
+                const weatherData = await weatherResponse.json();
+                if (weatherData && weatherData.current) {
+                    const temperature = Math.round(weatherData.current.temperature_2m);
+                    const humidity = weatherData.current.relative_humidity_2m;
+                    const weatherCode = weatherData.current.weathercode;
+                    const weatherInfo = getWeatherInfo(weatherCode);
+                    document.getElementById('weatherTemp').textContent = `${temperature}°C`;
+                    document.getElementById('weatherDesc').textContent = weatherInfo.description;
+                    document.getElementById('humidityValue').textContent = humidity;
+                    document.getElementById('weatherIcon').className = `fas ${weatherInfo.icon}`;
+                    const tempElement = document.getElementById('weatherTemp');
+                    tempElement.classList.remove('high-temp', 'low-temp');
+                    if (temperature >= 30) tempElement.classList.add('high-temp');
+                    else if (temperature <= 10) tempElement.classList.add('low-temp');
+                }
+            } catch (error) { console.error('获取天气数据失败:', error); }
+        }
+
+        function getWeatherInfo(code) {
+            const weatherMap = {
+                0: { icon: 'fa-sun', description: '晴朗' }, 1: { icon: 'fa-sun', description: '晴朗' },
+                2: { icon: 'fa-cloud-sun', description: '晴间多云' }, 3: { icon: 'fa-cloud', description: '多云' },
+                45: { icon: 'fa-smog', description: '有雾' }, 48: { icon: 'fa-smog', description: '雾凇' },
+                51: { icon: 'fa-cloud-rain', description: '毛毛雨' }, 53: { icon: 'fa-cloud-rain', description: '小雨' },
+                55: { icon: 'fa-cloud-rain', description: '中雨' }, 61: { icon: 'fa-cloud-rain', description: '小雨' },
+                63: { icon: 'fa-cloud-rain', description: '中雨' }, 65: { icon: 'fa-cloud-showers-heavy', description: '大雨' },
+                71: { icon: 'fa-snowflake', description: '小雪' }, 73: { icon: 'fa-snowflake', description: '中雪' },
+                75: { icon: 'fa-snowflake', description: '大雪' }, 95: { icon: 'fa-bolt', description: '雷雨' }
+            };
+            return weatherMap[code] || { icon: 'fa-cloud-sun', description: '未知' };
+        }
+
+        // ==================== 其他初始化函数 ====================
+        function initDeviceTypeSelect() {
+            const deviceTypeSelect = document.getElementById('deviceType');
+            const sensorTempGroup = document.getElementById('sensorTempGroup');
+            const sensorHumidityGroup = document.getElementById('sensorHumidityGroup');
+            const motorSpeedGroup = document.getElementById('motorSpeedGroup');
+            const batteryLevelGroup = document.getElementById('batteryLevelGroup');
+            
+            if (deviceTypeSelect) {
+                deviceTypeSelect.addEventListener('change', function() {
+                    if (sensorTempGroup) sensorTempGroup.style.display = 'none';
+                    if (sensorHumidityGroup) sensorHumidityGroup.style.display = 'none';
+                    if (motorSpeedGroup) motorSpeedGroup.style.display = 'none';
+                    if (batteryLevelGroup) batteryLevelGroup.style.display = 'none';
+                    
+                    if (this.value === 'temp-sensor') {
+                        if (sensorTempGroup) sensorTempGroup.style.display = 'block';
+                        if (batteryLevelGroup) batteryLevelGroup.style.display = 'block';
+                    }
+                    else if (this.value === 'humidity-sensor') {
+                        if (sensorHumidityGroup) sensorHumidityGroup.style.display = 'block';
+                        if (batteryLevelGroup) batteryLevelGroup.style.display = 'block';
+                    }
+                    else if (this.value === 'motor') {
+                        if (motorSpeedGroup) motorSpeedGroup.style.display = 'block';
+                    }
+                    else if (this.value === 'lock' || this.value === 'camera') {
+                        if (batteryLevelGroup) batteryLevelGroup.style.display = 'block';
+                    }
+                });
+            }
+        }
+
+        function initRoomTabs() {
+            document.querySelectorAll('.room-tab').forEach(tab => {
+                tab.addEventListener('click', function() {
+                    document.querySelectorAll('.room-tab').forEach(t => t.classList.remove('active'));
+                    this.classList.add('active');
+                    const room = this.dataset.room;
+                    document.querySelectorAll('.device-item').forEach(device => {
+                        device.style.display = (room === 'all' || device.dataset.room === room) ? 'flex' : 'none';
+                    });
+                });
+            });
+        }
+
+        function initModal() {
+            const addModal = document.getElementById('addDeviceModal');
+            const settingsModal = document.getElementById('deviceSettingsModal');
+            const logsModal = document.getElementById('logsModal');
+            const addBtn = document.getElementById('addDeviceBtn');
+            const closeBtns = document.querySelectorAll('.close-modal');
+            if (addBtn) addBtn.addEventListener('click', () => addModal.style.display = 'flex');
+            closeBtns.forEach(btn => btn.addEventListener('click', () => { addModal.style.display = 'none'; settingsModal.style.display = 'none'; logsModal.style.display = 'none'; }));
+            window.addEventListener('click', event => { if (event.target === addModal) addModal.style.display = 'none'; if (event.target === settingsModal) settingsModal.style.display = 'none'; if (event.target === logsModal) logsModal.style.display = 'none'; });
+        }
+
+        function initSaveDevice() {
+            document.getElementById('saveDeviceBtn')?.addEventListener('click', function() {
+                const form = document.getElementById('addDeviceForm');
+                if (!form.checkValidity()) { form.reportValidity(); return; }
+                const deviceType = document.getElementById('deviceType').value;
+                let icon = 'fa-microchip';
+                let temperature = null, humidity = null, motorSpeed = null, batteryLevel = null;
+                const selectedType = deviceTypeData.find(t => t.typeId === deviceType);
+                if (selectedType) icon = selectedType.icon;
+                if (deviceType === 'temp-sensor') {
+                    temperature = parseFloat(document.getElementById('sensorTemperature').value);
+                    batteryLevel = parseInt(document.getElementById('batteryLevel')?.value || 100);
+                }
+                else if (deviceType === 'humidity-sensor') {
+                    humidity = parseFloat(document.getElementById('sensorHumidity').value);
+                    batteryLevel = parseInt(document.getElementById('batteryLevel')?.value || 100);
+                }
+                else if (deviceType === 'motor') {
+                    motorSpeed = parseInt(document.getElementById('motorSpeed').value);
+                }
+                else if (deviceType === 'lock' || deviceType === 'camera') {
+                    batteryLevel = parseInt(document.getElementById('batteryLevel')?.value || 100);
+                }
+                const deviceData = {
+                    name: document.getElementById('deviceName').value,
+                    roomId: document.getElementById('deviceRoom').value,
+                    typeId: deviceType,
+                    icon: icon,
+                    power: document.getElementById('devicePower').value,
+                    isOn: document.getElementById('deviceStatus').value === 'on',
+                    progress: parseInt(document.getElementById('deviceProgress').value),
+                    temperatureValue: temperature,
+                    humidityValue: humidity,
+                    batteryLevel: batteryLevel,
+                    motorSpeed: motorSpeed
+                };
+                fetch('/api/devices/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify(deviceData)
+                })
+                .then(async response => {
+                    const text = await response.text();
+                    if (!text) throw new Error('服务器返回空响应');
+                    try { return JSON.parse(text); } catch(e) { throw new Error('服务器返回无效的JSON'); }
+                })
+                .then(data => {
+                    if (data.success) {
+                        addDeviceLog(document.getElementById('deviceName').value, '添加');
+                        showNotification('设备添加成功', 'success');
+                        setTimeout(() => location.reload(), 1000);
+                    } else showNotification('添加失败: ' + data.message, 'error');
+                })
+                .catch(error => { console.error('添加错误:', error); showNotification('添加设备时发生错误', 'error'); });
+            });
+        }
+
+        function initDeleteDevice() {
+            document.addEventListener('click', function(e) {
+                const deleteIcon = e.target.closest('.delete-device');
+                if (deleteIcon) {
+                    e.preventDefault(); e.stopPropagation();
+                    const deviceItem = deleteIcon.closest('.device-item');
+                    if (!deviceItem) return;
+                    const deviceId = deviceItem.dataset.id;
+                    const deviceName = deviceItem.querySelector('.device-name span').textContent;
+                    if (!deviceId) { showNotification('设备ID无效', 'error'); return; }
+                    if (confirm(`确定要删除设备 "${deviceName}" 吗？`)) {
+                        deleteIcon.style.opacity = '0.5';
+                        deleteIcon.style.cursor = 'wait';
+                        deleteIcon.classList.remove('fa-trash-alt');
+                        deleteIcon.classList.add('fa-spinner', 'fa-spin');
+                        const requestData = { id: parseInt(deviceId) };
+                        fetch('/api/devices/delete', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                            body: JSON.stringify(requestData)
+                        })
+                        .then(async response => {
+                            const text = await response.text();
+                            if (!text) throw new Error('服务器返回空响应');
+                            try { return JSON.parse(text); } catch(e) { throw new Error('服务器返回无效的JSON'); }
+                        })
+                        .then(data => {
+                            if (data.success) {
+                                addDeviceLog(deviceName, '删除');
+                                deviceItem.style.transition = 'all 0.3s ease';
+                                deviceItem.style.opacity = '0';
+                                deviceItem.style.transform = 'scale(0.8)';
+                                setTimeout(() => { deviceItem.remove(); updateDeviceStats(); calculateTotalPower(); calculateAverageRoomTemp(); calculateAverageHumidity(); showNotification('设备删除成功', 'success'); }, 300);
+                            } else { showNotification('删除失败: ' + data.message, 'error'); resetDeleteIcon(deleteIcon); }
+                        })
+                        .catch(error => { console.error('删除错误:', error); showNotification('删除设备时发生错误', 'error'); resetDeleteIcon(deleteIcon); });
+                    }
+                }
+            });
+        }
+
+        function resetDeleteIcon(deleteIcon) { deleteIcon.style.opacity = '1'; deleteIcon.style.cursor = 'pointer'; deleteIcon.classList.remove('fa-spinner', 'fa-spin'); deleteIcon.classList.add('fa-trash-alt'); }
+
+        function updateDateTime() {
+            const now = new Date();
+            const datePart = document.getElementById('datePart');
+            const timePart = document.getElementById('timePart');
+            if (datePart && timePart) {
+                const year = now.getFullYear();
+                const month = String(now.getMonth() + 1).padStart(2, '0');
+                const day = String(now.getDate()).padStart(2, '0');
+                const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+                const weekday = weekdays[now.getDay()];
+                datePart.textContent = `${year}-${month}-${day} ${weekday}`;
+                const hours = String(now.getHours()).padStart(2, '0');
+                const minutes = String(now.getMinutes()).padStart(2, '0');
+                const seconds = String(now.getSeconds()).padStart(2, '0');
+                timePart.textContent = `${hours}:${minutes}:${seconds}`;
+            }
+        }
+
+        function showNotification(message, type, duration = 3000) {
+            if (!document.getElementById('notification-styles')) {
+                const style = document.createElement('style');
+                style.id = 'notification-styles';
+                style.textContent = `.smart-notification{position:fixed;top:20px;right:20px;padding:12px 24px;color:white;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:9999;opacity:0;transform:translateX(100%);transition:all 0.3s ease}.smart-notification.show{opacity:1;transform:translateX(0)}.smart-notification.success{background:#4caf50}.smart-notification.error{background:#f44336}.smart-notification.info{background:#2196f3}.smart-notification.warning{background:#ff9800}`;
+                document.head.appendChild(style);
+            }
+            const notification = document.createElement('div');
+            notification.className = `smart-notification ${type}`;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.classList.add('show'), 10);
+            setTimeout(() => {
+                notification.classList.remove('show');
+                setTimeout(() => { if (notification.parentNode) document.body.removeChild(notification); }, 300);
+            }, duration);
+        }
+
+        function updateDeviceStats() {
+            const onlineDevices = document.querySelectorAll('.device-item:not(.offline)').length;
+            const onlineDevicesBadge = document.getElementById('onlineDevicesCount');
+            if (onlineDevicesBadge) onlineDevicesBadge.textContent = onlineDevices + ' 台在线';
+            const securityDevices = document.querySelectorAll('.device-item .fa-door-open, .device-item .fa-camera').length;
+            const securityDevicesSpan = document.getElementById('securityDevices');
+            if (securityDevicesSpan) securityDevicesSpan.textContent = securityDevices || '8';
+        }
+
+        // ==================== 自动化场景功能 ====================
+        function loadAutomationStates() {
+            const savedStates = localStorage.getItem('automationStates');
+            if (savedStates) {
+                const states = JSON.parse(savedStates);
+                document.querySelectorAll('.toggle-switch').forEach(toggle => {
+                    const sceneId = toggle.dataset.sceneId;
+                    if (states[sceneId] !== undefined) {
+                        if (states[sceneId]) { toggle.classList.add('active'); toggle.classList.remove('inactive'); }
+                        else { toggle.classList.remove('active'); toggle.classList.add('inactive'); }
+                    }
+                });
+            }
+            updateActiveScenesCount();
+        }
+
+        function saveAutomationStates() {
+            const states = {};
+            document.querySelectorAll('.toggle-switch').forEach(toggle => { states[toggle.dataset.sceneId] = toggle.classList.contains('active'); });
+            localStorage.setItem('automationStates', JSON.stringify(states));
+        }
+
+        function updateActiveScenesCount() {
+            const activeScenes = document.querySelectorAll('.toggle-switch.active').length;
+            const badge = document.getElementById('activeScenesCount');
+            if (badge) badge.textContent = activeScenes + ' 执行中';
+        }
+
+        function initAutomationToggles() {
+            document.querySelectorAll('.toggle-switch').forEach(toggle => {
+                toggle.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const sceneItem = this.closest('.scene-item');
+                    const sceneName = sceneItem?.dataset.sceneName || sceneItem?.querySelector('.scene-left span')?.textContent || '';
+                    const isActive = this.classList.contains('active');
+                    if (isActive) { this.classList.remove('active'); this.classList.add('inactive'); }
+                    else { this.classList.remove('inactive'); this.classList.add('active'); }
+                    saveAutomationStates();
+                    updateActiveScenesCount();
+                    addAutomationLog(sceneName, !isActive ? '启用' : '禁用');
+                    showNotification(`自动化场景 "${sceneName}" 已${!isActive ? '启用' : '禁用'}`, 'info');
+                });
+            });
+        }
+
+        // ==================== 日志功能 ====================
+        function initLogs() {
+            loadLogsFromStorage();
+            const logsBtn = document.getElementById('logsBtn');
+            const logsModal = document.getElementById('logsModal');
+            if (logsBtn) logsBtn.addEventListener('click', function() { logsModal.style.display = 'flex'; renderFullLogs(); });
+            document.querySelectorAll('.close-modal').forEach(btn => btn.addEventListener('click', () => logsModal.style.display = 'none'));
+            window.addEventListener('click', event => { if (event.target === logsModal) logsModal.style.display = 'none'; });
+            const logTypeFilter = document.getElementById('logTypeFilter');
+            const logSearch = document.getElementById('logSearch');
+            if (logTypeFilter) logTypeFilter.addEventListener('change', renderFullLogs);
+            if (logSearch) logSearch.addEventListener('input', debounce(renderFullLogs, 300));
+            const clearLogsBtn = document.getElementById('clearLogsBtn');
+            if (clearLogsBtn) clearLogsBtn.addEventListener('click', () => { if (confirm('确定要清除所有日志吗？')) { systemLogs = []; saveLogsToStorage(); renderFullLogs(); renderRecentLogs(); showNotification('日志已清除', 'success'); } });
+            if (systemLogs.length === 0) addSampleLogs();
+            renderRecentLogs();
+        }
+
+        function loadLogsFromStorage() { try { const savedLogs = localStorage.getItem('systemLogs'); if (savedLogs) systemLogs = JSON.parse(savedLogs); } catch(e) { systemLogs = []; } }
+        function saveLogsToStorage() { try { localStorage.setItem('systemLogs', JSON.stringify(systemLogs)); } catch(e) {} }
+        function addSampleLogs() { const now = new Date(); const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`; systemLogs = [{ id: Date.now()-5000, type:'system', title:'系统启动', description:'智能家居监控系统已启动', time:timeStr, device:'系统', icon:'fa-power-off' }, { id: Date.now()-10000, type:'device', title:'设备在线', description:'6台设备已连接到系统', time:timeStr, device:'系统', icon:'fa-wifi' }]; saveLogsToStorage(); }
+        function addLog(type, title, description, device='', icon='') { const now = new Date(); const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`; const defaultIcon = type==='device'?'fa-microchip':type==='alert'?'fa-exclamation-triangle':type==='automation'?'fa-clock':'fa-info-circle'; const newLog = { id:Date.now(), type, title, description, time:timeStr, date:now.toLocaleDateString(), device:device||'系统', icon:icon||defaultIcon }; systemLogs.unshift(newLog); if(systemLogs.length>100) systemLogs=systemLogs.slice(0,100); saveLogsToStorage(); renderRecentLogs(); const logsModal=document.getElementById('logsModal'); if(logsModal&&logsModal.style.display==='flex') renderFullLogs(); }
+        function addDeviceLog(deviceName, action) { addLog('device', `设备${action}`, `${deviceName} 已${action}`, deviceName, action==='添加'?'fa-plus-circle':action==='删除'?'fa-trash-alt':'fa-power-off'); }
+        function addAutomationLog(sceneName, action) { addLog('automation', '自动化场景', `"${sceneName}" 已${action}`, '自动化', 'fa-clock'); }
+        function renderRecentLogs() { const recentLogsList = document.getElementById('recentLogsList'); if(!recentLogsList) return; const recentLogs = systemLogs.slice(0,4); if(recentLogs.length===0) { recentLogsList.innerHTML='<div class="no-recent-logs">暂无最新动态</div>'; return; } let html=''; recentLogs.forEach(log=>{ const logType=log.type||'system'; const logIcon=log.icon||(logType==='device'?'fa-microchip':logType==='automation'?'fa-clock':logType==='alert'?'fa-exclamation-triangle':'fa-info-circle'); html+=`<div class="recent-log-item"><div class="recent-log-icon ${logType}"><i class="fas ${logIcon}"></i></div><div class="recent-log-content"><div class="recent-log-title">${log.title||'未知事件'}</div><div class="recent-log-description">${log.description||''}</div><div class="recent-log-time"><i class="far fa-clock"></i> ${log.time||'刚刚'}</div></div></div>`; }); recentLogsList.innerHTML=html; }
+        function renderFullLogs() { const logsList=document.getElementById('logsList'); const typeFilter=document.getElementById('logTypeFilter')?.value||'all'; const searchText=document.getElementById('logSearch')?.value.toLowerCase()||''; if(!logsList) return; let filteredLogs=systemLogs; if(typeFilter!=='all') filteredLogs=filteredLogs.filter(l=>l.type===typeFilter); if(searchText) filteredLogs=filteredLogs.filter(l=>(l.title&&l.title.toLowerCase().includes(searchText))||(l.description&&l.description.toLowerCase().includes(searchText))||(l.device&&l.device.toLowerCase().includes(searchText))); if(filteredLogs.length===0){ logsList.innerHTML='<div class="no-logs"><i class="fas fa-inbox" style="font-size:48px;margin-bottom:10px;opacity:0.3;"></i><br>暂无日志记录</div>'; return; } let html=''; filteredLogs.forEach(log=>{ const logType=log.type||'system'; const logIcon=log.icon||(logType==='device'?'fa-microchip':logType==='automation'?'fa-clock':logType==='alert'?'fa-exclamation-triangle':'fa-info-circle'); html+=`<div class="log-item"><div class="log-icon ${logType}"><i class="fas ${logIcon}"></i></div><div class="log-content"><div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;"><span class="log-title">${log.title||'未知事件'}</span><span class="log-device"><i class="fas ${logIcon}" style="margin-right:4px;"></i>${log.device||'系统'}</span></div><div style="display:flex;justify-content:space-between;align-items:center;"><span>${log.description||''}</span><span class="log-time"><i class="far fa-clock"></i> ${log.time||'刚刚'}</span></div></div></div>`; }); logsList.innerHTML=html; }
+        function debounce(func, wait) { let timeout; return function(...args) { clearTimeout(timeout); timeout = setTimeout(() => func(...args), wait); }; }
+
+        // ==================== AI助手功能 ====================
+        function initAIAssistant() {
+            const aiInput = document.getElementById('aiCommandInput');
+            const aiSendBtn = document.getElementById('aiCommandSend');
+            const voiceBtn = document.getElementById('voiceAssistantBtn');
+            const responseArea = document.getElementById('aiResponseArea');
+            const responseContent = document.getElementById('aiResponseContent');
+            const responseClose = document.querySelector('.ai-response-close');
+
+            function showResponseArea() { responseArea.style.display = 'block'; }
+            function hideResponseArea() { responseArea.style.display = 'none'; }
+            if (responseClose) responseClose.addEventListener('click', hideResponseArea);
+
+            function showThinking() { showResponseArea(); responseContent.innerHTML = '<div class="ai-thinking"><span class="ai-loading-spinner"></span> AI助手正在思考...</div>'; }
+            function showResponse(text) { showResponseArea(); const formattedText = text.replace(/\n/g, '<br>'); responseContent.innerHTML = `<div style="white-space: pre-wrap;">${escapeHtml(formattedText)}</div>`; responseContent.scrollTop = responseContent.scrollHeight; }
+            function showError(errorMsg) { showResponseArea(); responseContent.innerHTML = `<div style="color: #f44336;"><i class="fas fa-exclamation-circle"></i> ${escapeHtml(errorMsg)}</div>`; }
+
+            async function sendMessageToAI(message) {
+                if (!message.trim()) return;
+                showThinking();
+                try {
+                    const response = await fetch('/api/AIAssistant/chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message: message.trim() })
+                    });
+                    const data = await response.json();
+                    if (data.success) {
+                        showResponse(data.response);
+                        addLog('system', 'AI对话', `用户: ${message.substring(0, 50)}...`, 'AI助手', 'fa-robot');
+                    } else {
+                        showError(data.message || '处理失败，请稍后再试');
+                    }
+                } catch (error) {
+                    console.error('AI对话错误:', error);
+                    showError('网络连接失败，请检查网络后重试');
+                }
+            }
+
+            if (aiSendBtn && aiInput) {
+                aiSendBtn.addEventListener('click', function() { sendMessageToAI(aiInput.value); aiInput.value = ''; });
+                aiInput.addEventListener('keypress', function(e) { if (e.key === 'Enter') { e.preventDefault(); sendMessageToAI(aiInput.value); aiInput.value = ''; } });
+            }
+
+            if (voiceBtn && 'webkitSpeechRecognition' in window) {
+                const recognition = new webkitSpeechRecognition();
+                recognition.continuous = false;
+                recognition.interimResults = false;
+                recognition.lang = 'zh-CN';
+                let isListening = false;
+
+                voiceBtn.addEventListener('click', function() {
+                    if (isListening) {
+                        recognition.stop();
+                        voiceBtn.classList.remove('voice-listening');
+                        isListening = false;
+                        return;
+                    }
+                    try {
+                        recognition.start();
+                        voiceBtn.classList.add('voice-listening');
+                        isListening = true;
+                        showResponseArea();
+                        responseContent.innerHTML = '<div class="ai-thinking"><i class="fas fa-microphone"></i> 正在聆听，请说话...</div>';
+                    } catch (e) {
+                        console.error('语音识别启动失败:', e);
+                        showError('语音识别启动失败，请检查麦克风权限');
+                    }
+                });
+
+                recognition.onresult = function(event) {
+                    const transcript = event.results[0][0].transcript;
+                    if (aiInput) aiInput.value = transcript;
+                    sendMessageToAI(transcript);
+                    aiInput.value = '';
+                    voiceBtn.classList.remove('voice-listening');
+                    isListening = false;
+                };
+
+                recognition.onerror = function(event) {
+                    console.error('语音识别错误:', event.error);
+                    voiceBtn.classList.remove('voice-listening');
+                    isListening = false;
+                    if (event.error !== 'no-speech') {
+                        showError('语音识别失败: ' + event.error);
+                    } else {
+                        responseContent.innerHTML = '<div class="ai-thinking"><i class="fas fa-microphone-slash"></i> 未检测到语音，请重试</div>';
+                        setTimeout(() => { if (responseContent.innerHTML.includes('未检测到语音')) hideResponseArea(); }, 2000);
+                    }
+                };
+
+                recognition.onend = function() { voiceBtn.classList.remove('voice-listening'); isListening = false; };
+            } else if (voiceBtn) {
+                voiceBtn.style.opacity = '0.5';
+                voiceBtn.title = '您的浏览器不支持语音识别';
+                voiceBtn.addEventListener('click', function() { showError('您的浏览器不支持语音识别功能，请手动输入指令'); });
+            }
+
+            function addSuggestionsToResponse() {
+                const suggestions = [
+                    { text: '💡 打开客厅灯光', command: '打开客厅灯光' },
+                    { text: '❄️ 关闭客厅空调', command: '关闭客厅空调' },
+                    { text: '📊 查看设备状态', command: '设备状态' },
+                    { text: '🏠 查看房间状态', command: '房间状态' },
+                    { text: '⚡ 查看能耗', command: '能耗' },
+                    { text: '📋 查看场景列表', command: '场景列表' },
+                    { text: '❓ 帮助', command: '帮助' }
+                ];
+
+                const suggestionsHtml = `<div class="suggestions-tags">${suggestions.map(s => `<span class="suggestion-tag" data-command="${escapeHtml(s.command)}">${escapeHtml(s.text)}</span>`).join('')}</div>`;
+                const observer = new MutationObserver(function(mutations) {
+                    mutations.forEach(function(mutation) {
+                        if (mutation.type === 'childList' && responseContent.children.length === 1) {
+                            const content = responseContent.innerHTML;
+                            if (!content.includes('suggestions-tags') && !content.includes('ai-thinking')) {
+                                responseContent.insertAdjacentHTML('beforeend', suggestionsHtml);
+                                document.querySelectorAll('.suggestion-tag').forEach(tag => {
+                                    tag.addEventListener('click', function() {
+                                        const command = this.dataset.command;
+                                        if (aiInput) aiInput.value = command;
+                                        sendMessageToAI(command);
+                                        aiInput.value = '';
+                                    });
+                                });
+                            }
+                        }
+                    });
+                });
+                observer.observe(responseContent, { childList: true });
+                if (!responseContent.innerHTML.includes('suggestions-tags')) {
+                    responseContent.insertAdjacentHTML('beforeend', suggestionsHtml);
+                    document.querySelectorAll('.suggestion-tag').forEach(tag => {
+                        tag.addEventListener('click', function() {
+                            const command = this.dataset.command;
+                            if (aiInput) aiInput.value = command;
+                            sendMessageToAI(command);
+                            aiInput.value = '';
+                        });
+                    });
+                }
+            }
+            addSuggestionsToResponse();
+
+            document.addEventListener('click', function(e) {
+                if (responseArea.style.display === 'block') {
+                    if (!responseArea.contains(e.target) && !aiInput?.contains(e.target) && !aiSendBtn?.contains(e.target) && !voiceBtn?.contains(e.target)) {
+                        setTimeout(() => { if (responseArea.style.display === 'block' && !responseArea.matches(':hover') && !aiInput?.matches(':focus')) hideResponseArea(); }, 300);
+                    }
+                }
+            });
+        }
+
+        function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
+        
+        // ==================== 设备设置功能 ====================
         function openDeviceSettings(deviceId, deviceName, deviceType) {
             const modal = document.getElementById('deviceSettingsModal');
             const settingsContent = document.getElementById('settingsContent');
             const deviceNameSpan = document.getElementById('settingsDeviceName');
-
             deviceNameSpan.textContent = deviceName + ' 设置';
             currentDeviceSettings = { id: deviceId, type: deviceType };
-
-            // 从设备卡片获取最新的状态数据
             const deviceCard = document.querySelector(`.device-item[data-id="${deviceId}"]`);
             const statusElement = deviceCard?.querySelector('.device-status');
-
-            // 获取最新状态
             const isOn = statusElement?.classList.contains('on') || false;
-            const temperature = parseFloat(statusElement?.dataset.temperature || '0');
-            const humidity = parseInt(statusElement?.dataset.humidity || '0');
-            const speed = parseInt(statusElement?.dataset.speed || '0');
-            const mode = statusElement?.dataset.mode || 'cool';
-            const direction = statusElement?.dataset.direction || 'stop';
-
-            // 从功率元素获取功率值
+            const temperature = parseFloat(statusElement?.dataset.acTemperature || statusElement?.dataset.temperature || '0');
+            const humidity = parseFloat(statusElement?.dataset.humidityValue || statusElement?.dataset.temperature || '0');
+            const speed = parseInt(statusElement?.dataset.fanSpeed || statusElement?.dataset.speed || '0');
+            const mode = statusElement?.dataset.acMode || 'cool';
+            const direction = statusElement?.dataset.motorDirection || statusElement?.dataset.direction || 'stop';
             const powerSpan = deviceCard?.querySelector('.device-power');
-            const powerValue = parseFloat(powerSpan?.dataset.powerValue || '0') * 1000; // 转换为W
-
-            console.log(`打开设备设置: ${deviceName}, 类型=${deviceType}, 开关=${isOn}, 温度=${temperature}, 模式=${mode}`);
-
+            const powerValue = parseFloat(powerSpan?.dataset.powerValue || '0') * 1000;
+            
             let template = null;
             switch(deviceType) {
-                case 'light':
-                    template = document.getElementById('lightSettingsTemplate');
-                    break;
-                case 'ac':
-                    template = document.getElementById('acSettingsTemplate');
-                    break;
-                case 'lock':
-                    template = document.getElementById('lockSettingsTemplate');
-                    break;
-                case 'camera':
-                    template = document.getElementById('cameraSettingsTemplate');
-                    break;
-                case 'fan':
-                    template = document.getElementById('fanSettingsTemplate');
-                    break;
-                case 'temp-sensor':
-                    template = document.getElementById('tempSensorSettingsTemplate');
-                    break;
-                case 'humidity-sensor':
-                    template = document.getElementById('humiditySensorSettingsTemplate');
-                    break;
-                case 'motor':
-                    template = document.getElementById('motorSettingsTemplate');
-                    break;
+                case 'light': template = document.getElementById('lightSettingsTemplate'); break;
+                case 'ac': template = document.getElementById('acSettingsTemplate'); break;
+                case 'lock': template = document.getElementById('lockSettingsTemplate'); break;
+                case 'camera': template = document.getElementById('cameraSettingsTemplate'); break;
+                case 'fan': template = document.getElementById('fanSettingsTemplate'); break;
+                case 'temp-sensor': template = document.getElementById('tempSensorSettingsTemplate'); break;
+                case 'humidity-sensor': template = document.getElementById('humiditySensorSettingsTemplate'); break;
+                case 'motor': template = document.getElementById('motorSettingsTemplate'); break;
                 default:
                     settingsContent.innerHTML = '<div style="text-align: center; padding: 40px;"><i class="fas fa-cog" style="font-size: 48px; opacity: 0.3;"></i><br><p>该设备类型暂无设置选项</p></div>';
                     modal.style.display = 'flex';
                     return;
             }
-
             if (template) {
                 settingsContent.innerHTML = '';
                 settingsContent.appendChild(template.content.cloneNode(true));
-
-                // 传入最新的状态数据
                 initSettingsControls(deviceType, deviceId, isOn, temperature, humidity, speed, mode, direction, powerValue);
             }
-
             modal.style.display = 'flex';
         }
 
-        // ==================== 初始化设置控件 ====================
         function initSettingsControls(deviceType, deviceId, isOn, temperature, humidity, speed, mode, direction, powerValue) {
             switch(deviceType) {
-                case 'light':
-                    initLightSettings(deviceId, isOn);
-                    break;
-                case 'ac':
-                    initAcSettings(deviceId, isOn, temperature, mode, powerValue);
-                    break;
-                case 'lock':
-                    initLockSettings(deviceId, isOn);
-                    break;
-                case 'camera':
-                    initCameraSettings(deviceId, isOn);
-                    break;
-                case 'fan':
-                    initFanSettings(deviceId, isOn, speed);
-                    break;
-                case 'temp-sensor':
-                    initTempSensorSettings(temperature);
-                    break;
-                case 'humidity-sensor':
-                    initHumiditySensorSettings(humidity);
-                    break;
-                case 'motor':
-                    initMotorSettings(deviceId, direction);
-                    break;
+                case 'light': initLightSettings(deviceId, isOn); break;
+                case 'ac': initAcSettings(deviceId, isOn, temperature, mode, powerValue); break;
+                case 'lock': initLockSettings(deviceId, isOn); break;
+                case 'camera': initCameraSettings(deviceId, isOn); break;
+                case 'fan': initFanSettings(deviceId, isOn, speed); break;
+                case 'temp-sensor': initTempSensorSettings(temperature); break;
+                case 'humidity-sensor': initHumiditySensorSettings(humidity); break;
+                case 'motor': initMotorSettings(deviceId, direction); break;
+            }
+        }
+
+        function sendDeviceCommand(deviceId, command, parameters, callback) {
+            const deviceCard = document.querySelector(`.device-item[data-id="${deviceId}"]`);
+            const fullDeviceId = deviceCard?.dataset.fullId;
+            const targetId = fullDeviceId || deviceId;
+            fetch(`/api/tcp/devices/${targetId}/command`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: command, parameters: parameters || {} })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showNotification(`命令发送成功: ${command}`, 'success');
+                    if (callback) callback(data);
+                } else {
+                    showNotification(`命令发送失败: ${data.message}`, 'error');
+                    if (callback) callback(data);
+                }
+            })
+            .catch(error => { console.error('发送命令失败:', error); showNotification(`发送命令失败: ${error.message}`, 'error'); });
+        }
+
+        function initLightSettings(deviceId, isOn) {
+            const toggle = document.getElementById('lightPowerToggle');
+            const status = document.getElementById('lightPowerStatus');
+            const brightness = document.getElementById('lightBrightness');
+            const brightnessVal = document.getElementById('brightnessValue');
+            if (toggle) {
+                toggle.classList.toggle('active', isOn);
+                toggle.classList.toggle('inactive', !isOn);
+                status.textContent = isOn ? '开启' : '关闭';
+                toggle.addEventListener('click', function() {
+                    const newState = !this.classList.contains('active');
+                    this.classList.toggle('active', newState);
+                    this.classList.toggle('inactive', !newState);
+                    status.textContent = newState ? '开启' : '关闭';
+                    sendDeviceCommand(deviceId, 'set_power', { isOn: newState });
+                });
+            }
+            if (brightness && brightnessVal) {
+                brightness.addEventListener('input', function() { brightnessVal.textContent = this.value + '%'; });
+                brightness.addEventListener('change', function() { sendDeviceCommand(deviceId, 'set_brightness', { brightness: parseInt(this.value) }); });
             }
         }
 
@@ -2025,26 +2426,11 @@
             const tempInput = document.getElementById('acTemperature');
             const tempVal = document.getElementById('tempValue');
             const modeSelect = document.getElementById('acMode');
-
-            // 添加功率显示
-            const settingsForm = document.querySelector('#settingsContent .settings-form');
-            if (settingsForm && !document.getElementById('currentPowerDisplay')) {
-                const powerDiv = document.createElement('div');
-                powerDiv.className = 'form-group';
-                powerDiv.innerHTML = `
-                    <label>当前功率</label>
-                    <div style="font-size: 1.2rem; padding: 10px; background: rgba(0,0,0,0.05); border-radius: 8px;">
-                        <span id="currentPowerDisplay">${powerValue ? (powerValue >= 1000 ? (powerValue/1000).toFixed(2) + 'kW' : Math.round(powerValue) + 'W') : '--'}</span>
-                    </div>
-                `;
-                settingsForm.insertBefore(powerDiv, settingsForm.firstChild);
-            }
-
+            const fanSpeedSelect = document.getElementById('acFanSpeed');
             if (toggle) {
                 toggle.classList.toggle('active', isOn);
                 toggle.classList.toggle('inactive', !isOn);
                 status.textContent = isOn ? '开启' : '关闭';
-
                 toggle.addEventListener('click', function() {
                     const newState = !this.classList.contains('active');
                     this.classList.toggle('active', newState);
@@ -2053,107 +2439,36 @@
                     sendDeviceCommand(deviceId, 'set_power', { isOn: newState });
                 });
             }
-
             if (tempInput && tempVal) {
                 tempInput.value = temperature || 24;
                 tempVal.textContent = (temperature || 24) + '°C';
-
-                tempInput.addEventListener('input', function() {
-                    tempVal.textContent = this.value + '°C';
-                });
-
-                tempInput.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_temperature', { temperature: parseFloat(this.value) });
-                });
+                tempInput.addEventListener('input', function() { tempVal.textContent = this.value + '°C'; });
+                tempInput.addEventListener('change', function() { sendDeviceCommand(deviceId, 'set_temperature', { temperature: parseFloat(this.value) }); });
             }
-
             if (modeSelect) {
                 modeSelect.value = mode || 'cool';
-                modeSelect.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_mode', { mode: this.value });
-                });
+                modeSelect.addEventListener('change', function() { sendDeviceCommand(deviceId, 'set_mode', { mode: this.value }); });
             }
-
-            const swingVertical = document.getElementById('acSwingVertical');
-            const swingHorizontal = document.getElementById('acSwingHorizontal');
-            const light = document.getElementById('acLight');
-            const quiet = document.getElementById('acQuiet');
-
-            if (swingVertical) {
-                swingVertical.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_swing_vertical', { enabled: this.checked });
-                });
-            }
-
-            if (swingHorizontal) {
-                swingHorizontal.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_swing_horizontal', { enabled: this.checked });
-                });
-            }
-
-            if (light) {
-                light.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_light', { enabled: this.checked });
-                });
-            }
-
-            if (quiet) {
-                quiet.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_quiet', { enabled: this.checked });
-                });
-            }
-        }
-
-        function initLightSettings(deviceId, isOn) {
-            const toggle = document.getElementById('lightPowerToggle');
-            const status = document.getElementById('lightPowerStatus');
-            const brightness = document.getElementById('lightBrightness');
-            const brightnessVal = document.getElementById('brightnessValue');
-
-            if (toggle) {
-                toggle.classList.toggle('active', isOn);
-                toggle.classList.toggle('inactive', !isOn);
-                status.textContent = isOn ? '开启' : '关闭';
-
-                toggle.addEventListener('click', function() {
-                    const newState = !this.classList.contains('active');
-                    this.classList.toggle('active', newState);
-                    this.classList.toggle('inactive', !newState);
-                    status.textContent = newState ? '开启' : '关闭';
-                    sendDeviceCommand(deviceId, 'set_power', { isOn: newState });
-                });
-            }
-
-            if (brightness && brightnessVal) {
-                brightness.addEventListener('input', function() {
-                    brightnessVal.textContent = this.value + '%';
-                });
-
-                brightness.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_brightness', { brightness: parseInt(this.value) });
-                });
-            }
+            if (fanSpeedSelect) fanSpeedSelect.addEventListener('change', function() { sendDeviceCommand(deviceId, 'set_fan_speed', { speed: this.value }); });
         }
 
         function initLockSettings(deviceId, isOn) {
             const toggle = document.getElementById('lockToggle');
             const status = document.getElementById('lockStatus');
-
             if (toggle) {
                 toggle.classList.toggle('active', isOn);
                 toggle.classList.toggle('inactive', !isOn);
                 status.textContent = isOn ? '已上锁' : '未上锁';
-
                 toggle.addEventListener('click', function() {
                     const newState = !this.classList.contains('active');
                     this.classList.toggle('active', newState);
                     this.classList.toggle('inactive', !newState);
                     status.textContent = newState ? '已上锁' : '未上锁';
-
-                    if (newState) {
-                        sendDeviceCommand(deviceId, 'lock', {});
-                    } else {
-                        sendDeviceCommand(deviceId, 'unlock', {});
+                    if (newState) sendDeviceCommand(deviceId, 'lock', {});
+                    else {
+                        const code = prompt('请输入解锁密码：');
+                        if (code) sendDeviceCommand(deviceId, 'unlock', { code: code });
+                        else { this.classList.toggle('active', !newState); this.classList.toggle('inactive', newState); status.textContent = !newState ? '已上锁' : '未上锁'; }
                     }
                 });
             }
@@ -2162,12 +2477,10 @@
         function initCameraSettings(deviceId, isOn) {
             const toggle = document.getElementById('cameraPowerToggle');
             const status = document.getElementById('cameraPowerStatus');
-
             if (toggle) {
                 toggle.classList.toggle('active', isOn);
                 toggle.classList.toggle('inactive', !isOn);
                 status.textContent = isOn ? '开启' : '关闭';
-
                 toggle.addEventListener('click', function() {
                     const newState = !this.classList.contains('active');
                     this.classList.toggle('active', newState);
@@ -2183,12 +2496,10 @@
             const status = document.getElementById('fanPowerStatus');
             const speedInput = document.getElementById('fanSpeed');
             const speedVal = document.getElementById('fanSpeedValue');
-
             if (toggle) {
                 toggle.classList.toggle('active', isOn);
                 toggle.classList.toggle('inactive', !isOn);
                 status.textContent = isOn ? '开启' : '关闭';
-
                 toggle.addEventListener('click', function() {
                     const newState = !this.classList.contains('active');
                     this.classList.toggle('active', newState);
@@ -2197,33 +2508,22 @@
                     sendDeviceCommand(deviceId, 'set_power', { isOn: newState });
                 });
             }
-
             if (speedInput && speedVal) {
                 speedInput.value = speed || 3;
                 speedVal.textContent = (speed || 3) + '档';
-
-                speedInput.addEventListener('input', function() {
-                    speedVal.textContent = this.value + '档';
-                });
-
-                speedInput.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_speed', { speed: parseInt(this.value) });
-                });
+                speedInput.addEventListener('input', function() { speedVal.textContent = this.value + '档'; });
+                speedInput.addEventListener('change', function() { sendDeviceCommand(deviceId, 'set_speed', { speed: parseInt(this.value) }); });
             }
         }
 
         function initTempSensorSettings(temperature) {
             const tempDisplay = document.getElementById('currentTempDisplay');
-            if (tempDisplay) {
-                tempDisplay.textContent = temperature ? temperature.toFixed(1) : '--';
-            }
+            if (tempDisplay) tempDisplay.textContent = temperature ? temperature.toFixed(1) : '--';
         }
 
         function initHumiditySensorSettings(humidity) {
             const humidityDisplay = document.getElementById('currentHumidityDisplay');
-            if (humidityDisplay) {
-                humidityDisplay.textContent = humidity || '--';
-            }
+            if (humidityDisplay) humidityDisplay.textContent = humidity || '--';
         }
 
         function initMotorSettings(deviceId, direction) {
@@ -2233,800 +2533,14 @@
             const directionDisplay = document.getElementById('motorDirectionDisplay');
             const speedInput = document.getElementById('motorSpeed');
             const speedVal = document.getElementById('motorSpeedValue');
-
-            if (directionDisplay) {
-                directionDisplay.textContent = direction === 'forward' ? '正转' : direction === 'reverse' ? '反转' : '停止';
-            }
-
-            if (forwardBtn) {
-                forwardBtn.addEventListener('click', function() {
-                    directionDisplay.textContent = '正转';
-                    sendDeviceCommand(deviceId, 'set_direction', { direction: 'forward' });
-                });
-            }
-
-            if (reverseBtn) {
-                reverseBtn.addEventListener('click', function() {
-                    directionDisplay.textContent = '反转';
-                    sendDeviceCommand(deviceId, 'set_direction', { direction: 'reverse' });
-                });
-            }
-
-            if (stopBtn) {
-                stopBtn.addEventListener('click', function() {
-                    directionDisplay.textContent = '停止';
-                    sendDeviceCommand(deviceId, 'set_direction', { direction: 'stop' });
-                });
-            }
-
+            if (directionDisplay) directionDisplay.textContent = direction === 'forward' ? '正转' : direction === 'reverse' ? '反转' : '停止';
+            if (forwardBtn) forwardBtn.addEventListener('click', function() { directionDisplay.textContent = '正转'; sendDeviceCommand(deviceId, 'set_direction', { direction: 'forward' }); });
+            if (reverseBtn) reverseBtn.addEventListener('click', function() { directionDisplay.textContent = '反转'; sendDeviceCommand(deviceId, 'set_direction', { direction: 'reverse' }); });
+            if (stopBtn) stopBtn.addEventListener('click', function() { directionDisplay.textContent = '停止'; sendDeviceCommand(deviceId, 'set_direction', { direction: 'stop' }); });
             if (speedInput && speedVal) {
-                speedInput.addEventListener('input', function() {
-                    speedVal.textContent = this.value + ' rpm';
-                });
-
-                speedInput.addEventListener('change', function() {
-                    sendDeviceCommand(deviceId, 'set_speed', { speed: parseInt(this.value) });
-                });
+                speedInput.addEventListener('input', function() { speedVal.textContent = this.value + ' rpm'; });
+                speedInput.addEventListener('change', function() { sendDeviceCommand(deviceId, 'set_speed', { speed: parseInt(this.value) }); });
             }
-        }
-
-        // 发送命令到设备
-        function sendDeviceCommand(deviceId, command, parameters) {
-            console.log(`发送命令到设备 ${deviceId}: ${command}`, parameters);
-
-            fetch(`/api/tcp/devices/${deviceId}/command`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    command: command,
-                    parameters: parameters
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showNotification('命令已发送', 'info');
-                } else {
-                    showNotification('命令发送失败: ' + data.message, 'error');
-                }
-            })
-            .catch(error => {
-                console.error('发送命令失败:', error);
-                showNotification('发送命令失败', 'error');
-            });
-        }
-
-        // ==================== 保存设置 ====================
-        document.getElementById('saveSettingsBtn')?.addEventListener('click', function() {
-            if (!currentDeviceSettings) return;
-
-            console.log('保存设置:', currentDeviceSettings);
-
-            const settings = {};
-            const inputs = document.querySelectorAll('#settingsContent input, #settingsContent select');
-            inputs.forEach(input => {
-                settings[input.id] = input.value;
-            });
-
-            console.log('设置值:', settings);
-
-            showNotification('设置已保存', 'success');
-
-            document.getElementById('deviceSettingsModal').style.display = 'none';
-        });
-
-        // ==================== 自动化场景状态管理 ====================
-        function loadAutomationStates() {
-            const savedStates = localStorage.getItem('automationStates');
-            if (savedStates) {
-                const states = JSON.parse(savedStates);
-                document.querySelectorAll('.toggle-switch').forEach(toggle => {
-                    const sceneId = toggle.dataset.sceneId;
-                    if (states[sceneId] !== undefined) {
-                        if (states[sceneId]) {
-                            toggle.classList.add('active');
-                            toggle.classList.remove('inactive');
-                        } else {
-                            toggle.classList.remove('active');
-                            toggle.classList.add('inactive');
-                        }
-                    }
-                });
-            }
-            updateActiveScenesCount();
-        }
-
-        function saveAutomationStates() {
-            const states = {};
-            document.querySelectorAll('.toggle-switch').forEach(toggle => {
-                const sceneId = toggle.dataset.sceneId;
-                states[sceneId] = toggle.classList.contains('active');
-            });
-            localStorage.setItem('automationStates', JSON.stringify(states));
-        }
-
-        function updateActiveScenesCount() {
-            const activeScenes = document.querySelectorAll('.toggle-switch.active').length;
-            const badge = document.getElementById('activeScenesCount');
-            if (badge) {
-                badge.textContent = activeScenes + ' 执行中';
-            }
-        }
-
-        // ==================== 自动化开关初始化 ====================
-        function initAutomationToggles() {
-            document.querySelectorAll('.toggle-switch').forEach(toggle => {
-                toggle.addEventListener('click', function(e) {
-                    e.stopPropagation();
-
-                    const sceneItem = this.closest('.scene-item');
-                    const sceneName = sceneItem?.dataset.sceneName || sceneItem?.querySelector('.scene-left span')?.textContent || '';
-                    const isActive = this.classList.contains('active');
-
-                    if (isActive) {
-                        this.classList.remove('active');
-                        this.classList.add('inactive');
-                    } else {
-                        this.classList.remove('inactive');
-                        this.classList.add('active');
-                    }
-
-                    saveAutomationStates();
-                    updateActiveScenesCount();
-                    addAutomationLog(sceneName, !isActive ? '启用' : '禁用');
-                    showNotification(`自动化场景 "${sceneName}" 已${!isActive ? '启用' : '禁用'}`, 'info');
-                });
-            });
-        }
-
-        // ==================== 实时时间更新 ====================
-        function updateDateTime() {
-            const now = new Date();
-            const datePart = document.getElementById('datePart');
-            const timePart = document.getElementById('timePart');
-
-            if (datePart && timePart) {
-                const year = now.getFullYear();
-                const month = String(now.getMonth() + 1).padStart(2, '0');
-                const day = String(now.getDate()).padStart(2, '0');
-                const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-                const weekday = weekdays[now.getDay()];
-
-                datePart.textContent = `${year}-${month}-${day} ${weekday}`;
-
-                const hours = String(now.getHours()).padStart(2, '0');
-                const minutes = String(now.getMinutes()).padStart(2, '0');
-                const seconds = String(now.getSeconds()).padStart(2, '0');
-
-                timePart.textContent = `${hours}:${minutes}:${seconds}`;
-            }
-        }
-
-        // ==================== 自动夜间模式检测 ====================
-        function checkAndApplyAutoNightMode() {
-            const now = new Date();
-            const hours = now.getHours();
-
-            const isNightTime = hours >= 18 || hours < 6;
-            const themeMode = localStorage.getItem('themeMode');
-
-            if (themeMode !== 'manual') {
-                if (isNightTime) {
-                    document.body.classList.add('night-mode');
-                    localStorage.setItem('smartHomeTheme', 'night');
-                } else {
-                    document.body.classList.remove('night-mode');
-                    localStorage.setItem('smartHomeTheme', 'day');
-                }
-                localStorage.setItem('themeMode', 'auto');
-            }
-        }
-
-        // ==================== 房间筛选功能 ====================
-        function initRoomTabs() {
-            document.querySelectorAll('.room-tab').forEach(tab => {
-                tab.addEventListener('click', function() {
-                    document.querySelectorAll('.room-tab').forEach(t => t.classList.remove('active'));
-                    this.classList.add('active');
-
-                    const room = this.dataset.room;
-                    document.querySelectorAll('.device-item').forEach(device => {
-                        if (room === 'all' || device.dataset.room === room) {
-                            device.style.display = 'flex';
-                        } else {
-                            device.style.display = 'none';
-                        }
-                    });
-                });
-            });
-        }
-
-        // ==================== 主题切换初始化 ====================
-        function initThemeToggle() {
-            const themeToggle = document.getElementById('themeToggleBtn');
-
-            if (themeToggle) {
-                themeToggle.addEventListener('click', function(e) {
-                    e.preventDefault();
-
-                    document.body.classList.toggle('night-mode');
-
-                    const isNightMode = document.body.classList.contains('night-mode');
-                    localStorage.setItem('smartHomeTheme', isNightMode ? 'night' : 'day');
-                    localStorage.setItem('themeMode', 'manual');
-                });
-
-                const savedTheme = localStorage.getItem('smartHomeTheme');
-                const themeMode = localStorage.getItem('themeMode');
-
-                if (themeMode === 'manual' && savedTheme === 'night') {
-                    document.body.classList.add('night-mode');
-                } else {
-                    checkAndApplyAutoNightMode();
-                }
-            }
-
-            document.addEventListener('click', function(e) {
-                const toggleBtn = e.target.closest('#themeToggleBtn');
-                if (toggleBtn) {
-                    e.preventDefault();
-
-                    document.body.classList.toggle('night-mode');
-
-                    const isNightMode = document.body.classList.contains('night-mode');
-                    localStorage.setItem('smartHomeTheme', isNightMode ? 'night' : 'day');
-                    localStorage.setItem('themeMode', 'manual');
-                }
-            });
-        }
-
-        // ==================== 模态框功能 ====================
-        function initModal() {
-            const addModal = document.getElementById('addDeviceModal');
-            const settingsModal = document.getElementById('deviceSettingsModal');
-            const logsModal = document.getElementById('logsModal');
-            const addBtn = document.getElementById('addDeviceBtn');
-            const closeBtns = document.querySelectorAll('.close-modal');
-
-            if (addBtn) {
-                addBtn.addEventListener('click', function() {
-                    addModal.style.display = 'flex';
-                });
-            }
-
-            closeBtns.forEach(btn => {
-                btn.addEventListener('click', function() {
-                    addModal.style.display = 'none';
-                    settingsModal.style.display = 'none';
-                    logsModal.style.display = 'none';
-                });
-            });
-
-            window.addEventListener('click', function(event) {
-                if (event.target === addModal) {
-                    addModal.style.display = 'none';
-                }
-                if (event.target === settingsModal) {
-                    settingsModal.style.display = 'none';
-                }
-                if (event.target === logsModal) {
-                    logsModal.style.display = 'none';
-                }
-            });
-        }
-
-        // ==================== 保存新设备 ====================
-        function initSaveDevice() {
-            document.getElementById('saveDeviceBtn')?.addEventListener('click', function() {
-                const form = document.getElementById('addDeviceForm');
-
-                if (!form.checkValidity()) {
-                    form.reportValidity();
-                    return;
-                }
-
-                const deviceType = document.getElementById('deviceType').value;
-                let icon = 'fa-microchip';
-                let temperature = null;
-                let humidity = null;
-                let motorSpeed = null;
-
-                // 从设备类型数据中获取图标
-                const selectedType = deviceTypeData.find(t => t.typeId === deviceType);
-                if (selectedType) {
-                    icon = selectedType.icon;
-                }
-
-                switch(deviceType) {
-                    case 'temp-sensor':
-                        temperature = parseFloat(document.getElementById('sensorTemperature').value);
-                        break;
-                    case 'humidity-sensor':
-                        humidity = parseInt(document.getElementById('sensorHumidity').value);
-                        break;
-                    case 'motor':
-                        motorSpeed = parseInt(document.getElementById('motorSpeed').value);
-                        break;
-                }
-
-                const deviceData = {
-                    name: document.getElementById('deviceName').value,
-                    roomId: document.getElementById('deviceRoom').value,
-                    typeId: deviceType,
-                    icon: icon,
-                    power: document.getElementById('devicePower').value,
-                    isOn: document.getElementById('deviceStatus').value === 'on',
-                    progress: parseInt(document.getElementById('deviceProgress').value),
-                    temperature: temperature,
-                    humidity: humidity,
-                    motorSpeed: motorSpeed
-                };
-
-                console.log('发送添加请求:', deviceData);
-
-                fetch('/api/devices/add', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    body: JSON.stringify(deviceData)
-                })
-                .then(async response => {
-                    const text = await response.text();
-
-                    if (!text) {
-                        throw new Error('服务器返回空响应');
-                    }
-
-                    try {
-                        return JSON.parse(text);
-                    } catch (e) {
-                        throw new Error('服务器返回无效的JSON');
-                    }
-                })
-                .then(data => {
-                    if (data.success) {
-                        const deviceName = document.getElementById('deviceName').value;
-                        addDeviceLog(deviceName, '添加');
-
-                        showNotification('设备添加成功', 'success');
-                        setTimeout(() => {
-                            location.reload();
-                        }, 1000);
-                    } else {
-                        showNotification('添加失败: ' + data.message, 'error');
-                    }
-                })
-                .catch(error => {
-                    console.error('添加错误:', error);
-                    showNotification('添加设备时发生错误', 'error');
-                });
-            });
-        }
-
-        // ==================== 删除设备功能 ====================
-        function initDeleteDevice() {
-            document.addEventListener('click', function(e) {
-                const deleteIcon = e.target.closest('.delete-device');
-                if (deleteIcon) {
-                    e.preventDefault();
-                    e.stopPropagation();
-
-                    const deviceItem = deleteIcon.closest('.device-item');
-                    if (!deviceItem) return;
-
-                    const deviceId = deviceItem.dataset.id;
-                    const deviceName = deviceItem.querySelector('.device-name span').textContent;
-
-                    if (!deviceId) {
-                        showNotification('设备ID无效', 'error');
-                        return;
-                    }
-
-                    if (confirm(`确定要删除设备 "${deviceName}" 吗？`)) {
-                        deleteIcon.style.opacity = '0.5';
-                        deleteIcon.style.cursor = 'wait';
-                        deleteIcon.classList.remove('fa-trash-alt');
-                        deleteIcon.classList.add('fa-spinner', 'fa-spin');
-
-                        deleteDevice(deviceId, deviceItem, deleteIcon, deviceName);
-                    }
-                }
-            });
-        }
-
-        function deleteDevice(deviceId, deviceItem, deleteIcon, deviceName) {
-            const requestData = { id: parseInt(deviceId) };
-
-            fetch('/api/devices/delete', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify(requestData)
-            })
-            .then(async response => {
-                const text = await response.text();
-
-                if (!text) {
-                    throw new Error('服务器返回空响应');
-                }
-
-                try {
-                    return JSON.parse(text);
-                } catch (e) {
-                    throw new Error('服务器返回无效的JSON');
-                }
-            })
-            .then(data => {
-                if (data.success) {
-                    addDeviceLog(deviceName, '删除');
-
-                    deviceItem.style.transition = 'all 0.3s ease';
-                    deviceItem.style.opacity = '0';
-                    deviceItem.style.transform = 'scale(0.8)';
-
-                    setTimeout(() => {
-                        deviceItem.remove();
-                        updateDeviceStats();
-                        calculateTotalPower();
-                        calculateAverageRoomTemp();
-                        calculateAverageHumidity();
-                        showNotification('设备删除成功', 'success');
-                    }, 300);
-                } else {
-                    showNotification('删除失败: ' + data.message, 'error');
-                    resetDeleteIcon(deleteIcon);
-                }
-            })
-            .catch(error => {
-                console.error('删除错误:', error);
-                showNotification('删除设备时发生错误', 'error');
-                resetDeleteIcon(deleteIcon);
-            });
-        }
-
-        function resetDeleteIcon(deleteIcon) {
-            deleteIcon.style.opacity = '1';
-            deleteIcon.style.cursor = 'pointer';
-            deleteIcon.classList.remove('fa-spinner', 'fa-spin');
-            deleteIcon.classList.add('fa-trash-alt');
-        }
-
-        // ==================== 显示通知功能 ====================
-        function showNotification(message, type) {
-            if (!document.getElementById('notification-styles')) {
-                const style = document.createElement('style');
-                style.id = 'notification-styles';
-                style.textContent = `
-                    .smart-notification {
-                        position: fixed;
-                        top: 20px;
-                        right: 20px;
-                        padding: 12px 24px;
-                        color: white;
-                        border-radius: 8px;
-                        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-                        z-index: 9999;
-                        opacity: 0;
-                        transform: translateX(100%);
-                        transition: all 0.3s ease;
-                    }
-                    .smart-notification.show {
-                        opacity: 1;
-                        transform: translateX(0);
-                    }
-                    .smart-notification.success {
-                        background: #4caf50;
-                    }
-                    .smart-notification.error {
-                        background: #f44336;
-                    }
-                    .smart-notification.info {
-                        background: #2196f3;
-                    }
-                    .smart-notification.warning {
-                        background: #ff9800;
-                    }
-                `;
-                document.head.appendChild(style);
-            }
-
-            const notification = document.createElement('div');
-            notification.className = `smart-notification ${type}`;
-            notification.textContent = message;
-
-            document.body.appendChild(notification);
-
-            setTimeout(() => {
-                notification.classList.add('show');
-            }, 10);
-
-            setTimeout(() => {
-                notification.classList.remove('show');
-
-                setTimeout(() => {
-                    if (notification.parentNode) {
-                        document.body.removeChild(notification);
-                    }
-                }, 300);
-            }, 3000);
-        }
-
-        // ==================== 更新设备统计信息 ====================
-        function updateDeviceStats() {
-            const deviceCount = document.querySelectorAll('.device-item').length;
-            const onlineDevices = document.querySelectorAll('.device-item:not(.offline)').length;
-            const onlineDevicesBadge = document.getElementById('onlineDevicesCount');
-            if (onlineDevicesBadge) {
-                onlineDevicesBadge.textContent = onlineDevices + ' 台在线';
-            }
-
-            const securityDevices = document.querySelectorAll('.device-item .fa-door-open, .device-item .fa-camera').length;
-            const securityDevicesSpan = document.getElementById('securityDevices');
-            if (securityDevicesSpan) {
-                securityDevicesSpan.textContent = securityDevices || '8';
-            }
-        }
-
-        // ==================== 日志功能 ====================
-        function initLogs() {
-            loadLogsFromStorage();
-
-            const logsBtn = document.getElementById('logsBtn');
-            const logsModal = document.getElementById('logsModal');
-            const closeBtns = document.querySelectorAll('.close-modal');
-
-            if (logsBtn) {
-                logsBtn.addEventListener('click', function() {
-                    logsModal.style.display = 'flex';
-                    renderFullLogs();
-                });
-            }
-
-            const logTypeFilter = document.getElementById('logTypeFilter');
-            const logSearch = document.getElementById('logSearch');
-
-            if (logTypeFilter) {
-                logTypeFilter.addEventListener('change', renderFullLogs);
-            }
-
-            if (logSearch) {
-                logSearch.addEventListener('input', debounce(renderFullLogs, 300));
-            }
-
-            const clearLogsBtn = document.getElementById('clearLogsBtn');
-            if (clearLogsBtn) {
-                clearLogsBtn.addEventListener('click', function() {
-                    if (confirm('确定要清除所有日志吗？')) {
-                        systemLogs = [];
-                        saveLogsToStorage();
-                        renderFullLogs();
-                        renderRecentLogs();
-                        showNotification('日志已清除', 'success');
-                    }
-                });
-            }
-
-            closeBtns.forEach(btn => {
-                btn.addEventListener('click', function() {
-                    logsModal.style.display = 'none';
-                });
-            });
-
-            window.addEventListener('click', function(event) {
-                if (event.target === logsModal) {
-                    logsModal.style.display = 'none';
-                }
-            });
-
-            if (systemLogs.length === 0) {
-                addSampleLogs();
-            }
-
-            renderRecentLogs();
-        }
-
-        function loadLogsFromStorage() {
-            try {
-                const savedLogs = localStorage.getItem('systemLogs');
-                if (savedLogs) {
-                    systemLogs = JSON.parse(savedLogs);
-                }
-            } catch (e) {
-                systemLogs = [];
-            }
-        }
-
-        function saveLogsToStorage() {
-            try {
-                localStorage.setItem('systemLogs', JSON.stringify(systemLogs));
-            } catch (e) {}
-        }
-
-        function addSampleLogs() {
-            const now = new Date();
-            const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-
-            systemLogs = [
-                {
-                    id: Date.now() - 5000,
-                    type: 'system',
-                    title: '系统启动',
-                    description: '智能家居监控系统已启动',
-                    time: timeStr,
-                    device: '系统',
-                    icon: 'fa-power-off'
-                },
-                {
-                    id: Date.now() - 10000,
-                    type: 'device',
-                    title: '设备在线',
-                    description: '6台设备已连接到系统',
-                    time: timeStr,
-                    device: '系统',
-                    icon: 'fa-wifi'
-                }
-            ];
-            saveLogsToStorage();
-        }
-
-        function addLog(type, title, description, device = '', icon = '', silent = false) {
-            const now = new Date();
-            const hours = String(now.getHours()).padStart(2, '0');
-            const minutes = String(now.getMinutes()).padStart(2, '0');
-            const seconds = String(now.getSeconds()).padStart(2, '0');
-            const timeStr = `${hours}:${minutes}:${seconds}`;
-
-            let defaultIcon = 'fa-info-circle';
-            if (type === 'device') defaultIcon = 'fa-microchip';
-            if (type === 'alert') defaultIcon = 'fa-exclamation-triangle';
-            if (type === 'system') defaultIcon = 'fa-gear';
-            if (type === 'automation') defaultIcon = 'fa-clock';
-
-            const newLog = {
-                id: Date.now(),
-                type: type,
-                title: title,
-                description: description,
-                time: timeStr,
-                date: now.toLocaleDateString(),
-                device: device || '系统',
-                icon: icon || defaultIcon
-            };
-
-            systemLogs.unshift(newLog);
-
-            if (systemLogs.length > 100) {
-                systemLogs = systemLogs.slice(0, 100);
-            }
-
-            saveLogsToStorage();
-            renderRecentLogs();
-
-            const logsModal = document.getElementById('logsModal');
-            if (logsModal && logsModal.style.display === 'flex') {
-                renderFullLogs();
-            }
-        }
-
-        function addDeviceLog(deviceName, action, silent = false) {
-            addLog('device', `设备${action}`, `${deviceName} 已${action}`, deviceName,
-                   action === '添加' ? 'fa-plus-circle' : action === '删除' ? 'fa-trash-alt' : 'fa-power-off', silent);
-        }
-
-        function addAutomationLog(sceneName, action, silent = false) {
-            addLog('automation', '自动化场景', `"${sceneName}" 已${action}`, '自动化', 'fa-clock', silent);
-        }
-
-        function renderRecentLogs() {
-            const recentLogsList = document.getElementById('recentLogsList');
-            if (!recentLogsList) return;
-
-            const recentLogs = systemLogs.slice(0, 4);
-
-            if (recentLogs.length === 0) {
-                recentLogsList.innerHTML = '<div class="no-recent-logs">暂无最新动态</div>';
-                return;
-            }
-
-            let html = '';
-            recentLogs.forEach(log => {
-                const logType = log.type || 'system';
-                const logIcon = log.icon || (logType === 'device' ? 'fa-microchip' :
-                                             logType === 'automation' ? 'fa-clock' :
-                                             logType === 'alert' ? 'fa-exclamation-triangle' : 'fa-info-circle');
-                const logDevice = log.device || '系统';
-                const logTime = log.time || '刚刚';
-
-                html += `
-                    <div class="recent-log-item">
-                        <div class="recent-log-icon ${logType}">
-                            <i class="fas ${logIcon}"></i>
-                        </div>
-                        <div class="recent-log-content">
-                            <div class="recent-log-title">${log.title || '未知事件'}</div>
-                            <div class="recent-log-description">${log.description || ''}</div>
-                            <div class="recent-log-time"><i class="far fa-clock"></i> ${logTime}</div>
-                        </div>
-                    </div>
-                `;
-            });
-
-            recentLogsList.innerHTML = html;
-        }
-
-        function renderFullLogs() {
-            const logsList = document.getElementById('logsList');
-            const typeFilter = document.getElementById('logTypeFilter')?.value || 'all';
-            const searchText = document.getElementById('logSearch')?.value.toLowerCase() || '';
-
-            if (!logsList) return;
-
-            let filteredLogs = systemLogs;
-
-            if (typeFilter !== 'all') {
-                filteredLogs = filteredLogs.filter(log => log.type === typeFilter);
-            }
-
-            if (searchText) {
-                filteredLogs = filteredLogs.filter(log =>
-                    (log.title && log.title.toLowerCase().includes(searchText)) ||
-                    (log.description && log.description.toLowerCase().includes(searchText)) ||
-                    (log.device && log.device.toLowerCase().includes(searchText))
-                );
-            }
-
-            if (filteredLogs.length === 0) {
-                logsList.innerHTML = '<div class="no-logs"><i class="fas fa-inbox" style="font-size: 48px; margin-bottom: 10px; opacity: 0.3;"></i><br>暂无日志记录</div>';
-                return;
-            }
-
-            let html = '';
-            filteredLogs.forEach(log => {
-                const logType = log.type || 'system';
-                const logIcon = log.icon || (logType === 'device' ? 'fa-microchip' :
-                                             logType === 'automation' ? 'fa-clock' :
-                                             logType === 'alert' ? 'fa-exclamation-triangle' : 'fa-info-circle');
-                const logDevice = log.device || '系统';
-                const logTime = log.time || '刚刚';
-
-                html += `
-                    <div class="log-item">
-                        <div class="log-icon ${logType}">
-                            <i class="fas ${logIcon}"></i>
-                        </div>
-                        <div class="log-content">
-                            <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
-                                <span class="log-title">${log.title || '未知事件'}</span>
-                                <span class="log-device"><i class="fas ${logIcon}" style="margin-right: 4px;"></i>${logDevice}</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <span>${log.description || ''}</span>
-                                <span class="log-time"><i class="far fa-clock"></i> ${logTime}</span>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            });
-
-            logsList.innerHTML = html;
-        }
-
-        function debounce(func, wait) {
-            let timeout;
-            return function executedFunction(...args) {
-                const later = () => {
-                    clearTimeout(timeout);
-                    func(...args);
-                };
-                clearTimeout(timeout);
-                timeout = setTimeout(later, wait);
-            };
         }
     </script>
 }

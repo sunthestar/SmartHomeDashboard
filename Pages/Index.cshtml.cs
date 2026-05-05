@@ -108,17 +108,6 @@ namespace SmartHomeDashboard.Pages
             // 重新计算在线设备数量
             OnlineDevices = Devices.Count(d => d.IsOn && d.StatusText != "离线");
 
-            // 计算实时功率
-            double totalPower = 0;
-            foreach (var device in Devices)
-            {
-                if (device.IsOn && device.StatusText != "离线")
-                {
-                    totalPower += device.PowerValue;
-                }
-            }
-            RealTimePower = totalPower.ToString("F2");
-
             // 计算平均室温
             CalculateAverageRoomTemp();
 

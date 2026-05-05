@@ -48,6 +48,7 @@ namespace SmartHomeDashboard.Data
                 entity.Property(e => e.RoomId).IsRequired().HasMaxLength(50);
                 entity.Property(e => e.RoomName).IsRequired().HasMaxLength(50);
                 entity.Property(e => e.Description).HasMaxLength(200);
+                entity.Property(e => e.CreatedAt).IsRequired();
             });
 
             // 配置设备类型表
@@ -59,6 +60,7 @@ namespace SmartHomeDashboard.Data
                 entity.Property(e => e.TypeName).IsRequired().HasMaxLength(50);
                 entity.Property(e => e.Icon).HasMaxLength(50);
                 entity.Property(e => e.Description).HasMaxLength(200);
+                entity.Property(e => e.CreatedAt).IsRequired();
             });
 
             // 配置设备表
@@ -76,11 +78,11 @@ namespace SmartHomeDashboard.Data
                 entity.Property(e => e.Icon).HasMaxLength(50);
                 entity.Property(e => e.StatusText).HasMaxLength(100);
                 entity.Property(e => e.Detail).HasMaxLength(200);
-                entity.Property(e => e.Power).HasMaxLength(20);
                 entity.Property(e => e.Mode).HasMaxLength(20);
                 entity.Property(e => e.Direction).HasMaxLength(20);
                 entity.Property(e => e.ProgressColor).HasMaxLength(20);
                 entity.Property(e => e.Temperature).HasColumnType("decimal(5,2)");
+                entity.Property(e => e.CreatedAt).IsRequired();
 
                 // 外键关系
                 entity.HasOne(e => e.Room)
@@ -105,6 +107,7 @@ namespace SmartHomeDashboard.Data
                 entity.Property(e => e.DeviceName).HasMaxLength(100);
                 entity.Property(e => e.DeviceType).HasMaxLength(50);
                 entity.Property(e => e.IpAddress).HasMaxLength(50);
+                entity.Property(e => e.CreatedAt).IsRequired();
 
                 // 外键关系
                 entity.HasOne(e => e.Device)
@@ -128,6 +131,7 @@ namespace SmartHomeDashboard.Data
                 entity.Property(e => e.DeviceName).HasMaxLength(100);
                 entity.Property(e => e.ActionType).HasMaxLength(50);
                 entity.Property(e => e.ActionDetail).HasMaxLength(500);
+                entity.Property(e => e.Timestamp).IsRequired();
 
                 // 外键关系
                 entity.HasOne(e => e.Device)
@@ -152,6 +156,7 @@ namespace SmartHomeDashboard.Data
                 entity.Property(e => e.Actions).HasColumnType("text");
                 entity.Property(e => e.ExecuteTime).HasMaxLength(50);
                 entity.Property(e => e.RepeatDays).HasMaxLength(50);
+                entity.Property(e => e.CreatedAt).IsRequired();
             });
 
             // 配置登录设置表（单用户模式）
@@ -163,14 +168,17 @@ namespace SmartHomeDashboard.Data
                 entity.Property(e => e.Password).IsRequired().HasMaxLength(200);
                 entity.Property(e => e.PasswordSalt).HasMaxLength(50);
                 entity.Property(e => e.LastLoginIp).HasMaxLength(50);
+                entity.Property(e => e.CreatedAt).IsRequired();
 
-                // 确保只有一条记录
+                // 确保只有一条记录，ID固定为1
                 entity.HasData(new LoginSettingsModel
                 {
                     Id = 1,
                     Password = "123456", // 实际应用中需要加密
                     PasswordSalt = "",
                     IsEnabled = true,
+                    LoginCount = 0,
+                    FailCount = 0,
                     CreatedAt = DateTime.Now
                 });
             });
@@ -191,13 +199,13 @@ namespace SmartHomeDashboard.Data
         private void SeedRooms(ModelBuilder modelBuilder)
         {
             modelBuilder.Entity<RoomModel>().HasData(
-                new RoomModel { Id = 1, RoomId = "living", RoomName = "客厅", Description = "主要活动区域", DeviceCount = 0, OnlineCount = 0, CreatedAt = DateTime.Now },
-                new RoomModel { Id = 2, RoomId = "master-bedroom", RoomName = "主卧", Description = "主人卧室", DeviceCount = 0, OnlineCount = 0, CreatedAt = DateTime.Now },
+                new RoomModel { Id = 1, RoomId = "living", RoomName = "客厅", Description = "主要活动区域", DeviceCount = 2, OnlineCount = 0, CreatedAt = DateTime.Now },
+                new RoomModel { Id = 2, RoomId = "master-bedroom", RoomName = "主卧", Description = "主人卧室", DeviceCount = 1, OnlineCount = 0, CreatedAt = DateTime.Now },
                 new RoomModel { Id = 3, RoomId = "second-bedroom", RoomName = "次卧", Description = "次卧/客房", DeviceCount = 0, OnlineCount = 0, CreatedAt = DateTime.Now },
-                new RoomModel { Id = 4, RoomId = "kitchen", RoomName = "厨房", Description = "烹饪区域", DeviceCount = 0, OnlineCount = 0, CreatedAt = DateTime.Now },
-                new RoomModel { Id = 5, RoomId = "bathroom", RoomName = "浴室", Description = "洗浴区域", DeviceCount = 0, OnlineCount = 0, CreatedAt = DateTime.Now },
+                new RoomModel { Id = 4, RoomId = "kitchen", RoomName = "厨房", Description = "烹饪区域", DeviceCount = 1, OnlineCount = 0, CreatedAt = DateTime.Now },
+                new RoomModel { Id = 5, RoomId = "bathroom", RoomName = "浴室", Description = "洗浴区域", DeviceCount = 1, OnlineCount = 0, CreatedAt = DateTime.Now },
                 new RoomModel { Id = 6, RoomId = "dining", RoomName = "餐厅", Description = "用餐区域", DeviceCount = 0, OnlineCount = 0, CreatedAt = DateTime.Now },
-                new RoomModel { Id = 7, RoomId = "entrance", RoomName = "入口", Description = "玄关/入口", DeviceCount = 0, OnlineCount = 0, CreatedAt = DateTime.Now }
+                new RoomModel { Id = 7, RoomId = "entrance", RoomName = "入口", Description = "玄关/入口", DeviceCount = 1, OnlineCount = 0, CreatedAt = DateTime.Now }
             );
         }
 
@@ -217,12 +225,14 @@ namespace SmartHomeDashboard.Data
 
         private void SeedDevices(ModelBuilder modelBuilder)
         {
+            // 房间ID
             int livingRoomId = 1;
             int masterBedroomId = 2;
             int kitchenId = 4;
             int bathroomId = 5;
             int entranceId = 7;
 
+            // 设备类型ID
             int acTypeId = 1;
             int lightTypeId = 2;
             int lockTypeId = 3;
@@ -231,12 +241,13 @@ namespace SmartHomeDashboard.Data
             int fanTypeId = 5;
 
             modelBuilder.Entity<DeviceModel>().HasData(
+                // 1. 客厅空调 - ac-liv-001
                 new DeviceModel
                 {
                     Id = 1,
                     Name = "客厅空调",
                     DeviceNumber = "001",
-                    FullDeviceId = "living-ac-001",
+                    FullDeviceId = "ac-liv-001",
                     RoomId = livingRoomId,
                     DeviceTypeId = acTypeId,
                     RoomIdentifier = "living",
@@ -245,8 +256,6 @@ namespace SmartHomeDashboard.Data
                     IsOn = false,
                     StatusText = "离线",
                     Detail = "空调 · 等待连接",
-                    Power = "0W",
-                    PowerValue = 0,
                     Progress = 0,
                     ProgressColor = "#a0a0a0",
                     Mode = "cool",
@@ -257,12 +266,13 @@ namespace SmartHomeDashboard.Data
                     Quiet = false,
                     CreatedAt = DateTime.Now
                 },
+                // 2. 客厅灯光 - light-liv-001
                 new DeviceModel
                 {
                     Id = 2,
                     Name = "客厅灯光",
                     DeviceNumber = "001",
-                    FullDeviceId = "living-light-001",
+                    FullDeviceId = "light-liv-001",
                     RoomId = livingRoomId,
                     DeviceTypeId = lightTypeId,
                     RoomIdentifier = "living",
@@ -271,18 +281,17 @@ namespace SmartHomeDashboard.Data
                     IsOn = false,
                     StatusText = "离线",
                     Detail = "灯光 · 等待连接",
-                    Power = "0W",
-                    PowerValue = 0,
                     Progress = 0,
                     ProgressColor = "#a0a0a0",
                     CreatedAt = DateTime.Now
                 },
+                // 3. 入口门锁 - lock-ent-001
                 new DeviceModel
                 {
                     Id = 3,
                     Name = "入口门锁",
                     DeviceNumber = "001",
-                    FullDeviceId = "entrance-lock-001",
+                    FullDeviceId = "lock-ent-001",
                     RoomId = entranceId,
                     DeviceTypeId = lockTypeId,
                     RoomIdentifier = "entrance",
@@ -291,19 +300,18 @@ namespace SmartHomeDashboard.Data
                     IsOn = false,
                     StatusText = "离线",
                     Detail = "门锁 · 等待连接",
-                    Power = "0W",
-                    PowerValue = 0,
                     Progress = 0,
                     ProgressColor = "#a0a0a0",
                     Humidity = 100,
                     CreatedAt = DateTime.Now
                 },
+                // 4. 厨房温度传感器 - temp-kit-001
                 new DeviceModel
                 {
                     Id = 4,
                     Name = "厨房温度传感器",
                     DeviceNumber = "001",
-                    FullDeviceId = "kitchen-temp-sensor-001",
+                    FullDeviceId = "temp-kit-001",
                     RoomId = kitchenId,
                     DeviceTypeId = tempSensorTypeId,
                     RoomIdentifier = "kitchen",
@@ -312,19 +320,18 @@ namespace SmartHomeDashboard.Data
                     IsOn = false,
                     StatusText = "离线",
                     Detail = "温度传感器 · 等待连接",
-                    Power = "0W",
-                    PowerValue = 0,
                     Progress = 0,
                     ProgressColor = "#a0a0a0",
                     Temperature = 22.5,
                     CreatedAt = DateTime.Now
                 },
+                // 5. 浴室湿度传感器 - hum-bat-001
                 new DeviceModel
                 {
                     Id = 5,
                     Name = "浴室湿度传感器",
                     DeviceNumber = "001",
-                    FullDeviceId = "bathroom-humidity-sensor-001",
+                    FullDeviceId = "hum-bat-001",
                     RoomId = bathroomId,
                     DeviceTypeId = humiditySensorTypeId,
                     RoomIdentifier = "bathroom",
@@ -333,19 +340,18 @@ namespace SmartHomeDashboard.Data
                     IsOn = false,
                     StatusText = "离线",
                     Detail = "湿度传感器 · 等待连接",
-                    Power = "0W",
-                    PowerValue = 0,
                     Progress = 0,
                     ProgressColor = "#a0a0a0",
                     Humidity = 65,
                     CreatedAt = DateTime.Now
                 },
+                // 6. 主卧风扇 - fan-mbd-001
                 new DeviceModel
                 {
                     Id = 6,
                     Name = "卧室风扇",
                     DeviceNumber = "001",
-                    FullDeviceId = "master-bedroom-fan-001",
+                    FullDeviceId = "fan-mbd-001",
                     RoomId = masterBedroomId,
                     DeviceTypeId = fanTypeId,
                     RoomIdentifier = "master-bedroom",
@@ -354,8 +360,6 @@ namespace SmartHomeDashboard.Data
                     IsOn = false,
                     StatusText = "离线",
                     Detail = "风扇 · 等待连接",
-                    Power = "0W",
-                    PowerValue = 0,
                     Progress = 0,
                     ProgressColor = "#a0a0a0",
                     MotorSpeed = 3,

@@ -10,12 +10,18 @@ namespace SmartHomeDashboard.Controllers
     {
         private readonly TcpServerService _tcpServerService;
         private readonly TcpDeviceService _tcpDeviceService;
+        private readonly DeviceDataService _deviceDataService;
         private readonly ILogger<TcpController> _logger;
 
-        public TcpController(TcpServerService tcpServerService, TcpDeviceService tcpDeviceService, ILogger<TcpController> logger)
+        public TcpController(
+            TcpServerService tcpServerService,
+            TcpDeviceService tcpDeviceService,
+            DeviceDataService deviceDataService,
+            ILogger<TcpController> logger)
         {
             _tcpServerService = tcpServerService;
             _tcpDeviceService = tcpDeviceService;
+            _deviceDataService = deviceDataService;
             _logger = logger;
         }
 
@@ -69,14 +75,35 @@ namespace SmartHomeDashboard.Controllers
         }
 
         /// <summary>
-        /// 发送命令到设备
+        /// 发送命令到设备 - 支持数字ID和字符串ID
         /// </summary>
         [HttpPost("devices/{deviceId}/command")]
         public async Task<IActionResult> SendCommand(string deviceId, [FromBody] TcpCommandRequest request)
         {
             try
             {
-                await _tcpDeviceService.SendCommandAsync(deviceId, request.Command, request.Parameters);
+                string fullDeviceId = deviceId;
+
+                // 如果是数字ID，先查找对应的FullDeviceId
+                if (int.TryParse(deviceId, out int intDeviceId))
+                {
+                    var device = await _deviceDataService.GetDeviceByIdAsync(intDeviceId);
+                    if (device == null)
+                    {
+                        return NotFound(new { success = false, message = $"设备不存在 (ID: {deviceId})" });
+                    }
+                    fullDeviceId = device.FullDeviceId;
+                    _logger.LogInformation($"转换设备ID: {deviceId} -> {fullDeviceId}");
+                }
+
+                // 检查设备是否在线
+                var tcpDevice = _tcpDeviceService.GetDevice(fullDeviceId);
+                if (tcpDevice == null || !tcpDevice.IsOnline)
+                {
+                    return BadRequest(new { success = false, message = $"设备 {fullDeviceId} 不在线" });
+                }
+
+                await _tcpDeviceService.SendCommandAsync(fullDeviceId, request.Command, request.Parameters);
                 return Ok(new { success = true, message = "命令已发送" });
             }
             catch (Exception ex)
@@ -94,7 +121,8 @@ namespace SmartHomeDashboard.Controllers
         {
             try
             {
-                await _tcpDeviceService.TurnOnAsync(deviceId);
+                string fullDeviceId = await GetFullDeviceIdAsync(deviceId);
+                await _tcpDeviceService.TurnOnAsync(fullDeviceId);
                 return Ok(new { success = true, message = "开启命令已发送" });
             }
             catch (Exception ex)
@@ -111,7 +139,8 @@ namespace SmartHomeDashboard.Controllers
         {
             try
             {
-                await _tcpDeviceService.TurnOffAsync(deviceId);
+                string fullDeviceId = await GetFullDeviceIdAsync(deviceId);
+                await _tcpDeviceService.TurnOffAsync(fullDeviceId);
                 return Ok(new { success = true, message = "关闭命令已发送" });
             }
             catch (Exception ex)
@@ -128,7 +157,8 @@ namespace SmartHomeDashboard.Controllers
         {
             try
             {
-                await _tcpDeviceService.SetTemperatureAsync(deviceId, request.Temperature);
+                string fullDeviceId = await GetFullDeviceIdAsync(deviceId);
+                await _tcpDeviceService.SetTemperatureAsync(fullDeviceId, request.Temperature);
                 return Ok(new { success = true, message = "温度设置已发送" });
             }
             catch (Exception ex)
@@ -145,7 +175,8 @@ namespace SmartHomeDashboard.Controllers
         {
             try
             {
-                await _tcpDeviceService.SetHumidityAsync(deviceId, request.Humidity);
+                string fullDeviceId = await GetFullDeviceIdAsync(deviceId);
+                await _tcpDeviceService.SetHumidityAsync(fullDeviceId, request.Humidity);
                 return Ok(new { success = true, message = "湿度设置已发送" });
             }
             catch (Exception ex)
@@ -162,7 +193,8 @@ namespace SmartHomeDashboard.Controllers
         {
             try
             {
-                await _tcpDeviceService.SetBrightnessAsync(deviceId, request.Brightness);
+                string fullDeviceId = await GetFullDeviceIdAsync(deviceId);
+                await _tcpDeviceService.SetBrightnessAsync(fullDeviceId, request.Brightness);
                 return Ok(new { success = true, message = "亮度设置已发送" });
             }
             catch (Exception ex)
@@ -179,7 +211,8 @@ namespace SmartHomeDashboard.Controllers
         {
             try
             {
-                await _tcpDeviceService.SetMotorSpeedAsync(deviceId, request.Speed);
+                string fullDeviceId = await GetFullDeviceIdAsync(deviceId);
+                await _tcpDeviceService.SetMotorSpeedAsync(fullDeviceId, request.Speed);
                 return Ok(new { success = true, message = "转速设置已发送" });
             }
             catch (Exception ex)
@@ -196,7 +229,8 @@ namespace SmartHomeDashboard.Controllers
         {
             try
             {
-                await _tcpDeviceService.LockAsync(deviceId);
+                string fullDeviceId = await GetFullDeviceIdAsync(deviceId);
+                await _tcpDeviceService.LockAsync(fullDeviceId);
                 return Ok(new { success = true, message = "上锁命令已发送" });
             }
             catch (Exception ex)
@@ -213,13 +247,39 @@ namespace SmartHomeDashboard.Controllers
         {
             try
             {
-                await _tcpDeviceService.UnlockAsync(deviceId, request.Code);
+                string fullDeviceId = await GetFullDeviceIdAsync(deviceId);
+                await _tcpDeviceService.UnlockAsync(fullDeviceId, request.Code);
                 return Ok(new { success = true, message = "解锁命令已发送" });
             }
             catch (Exception ex)
             {
                 return BadRequest(new { success = false, message = ex.Message });
             }
+        }
+
+        /// <summary>
+        /// 辅助方法：将数字ID转换为FullDeviceId
+        /// </summary>
+        private async Task<string> GetFullDeviceIdAsync(string deviceId)
+        {
+            // 如果已经是完整ID格式（包含-），直接返回
+            if (deviceId.Contains('-'))
+            {
+                return deviceId;
+            }
+
+            // 尝试转换为数字ID
+            if (int.TryParse(deviceId, out int intDeviceId))
+            {
+                var device = await _deviceDataService.GetDeviceByIdAsync(intDeviceId);
+                if (device == null)
+                {
+                    throw new Exception($"设备不存在 (ID: {deviceId})");
+                }
+                return device.FullDeviceId;
+            }
+
+            throw new Exception($"无效的设备ID格式: {deviceId}");
         }
     }
 

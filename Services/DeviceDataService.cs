@@ -15,146 +15,335 @@ namespace SmartHomeDashboard.Services
             _dbContextFactory = dbContextFactory;
             _logger = logger;
 
-            // 确保数据库已创建
             using var context = _dbContextFactory.CreateDbContext();
             context.Database.EnsureCreated();
 
             _logger.LogInformation($"DeviceDataService 初始化完成，数据库路径: {context.DbPath}");
         }
 
+        // 辅助：将类型标识转换为显示名称
+        private string GetDeviceTypeDisplay(string typeId)
+        {
+            return typeId switch
+            {
+                "light" => "灯光",
+                "ac" => "空调",
+                "lock" => "门锁",
+                "camera" => "摄像头",
+                "fan" => "风扇",
+                "temp-sensor" => "温度传感器",
+                "humidity-sensor" => "湿度传感器",
+                "motor" => "电机",
+                _ => "设备",
+            };
+        }
+
+        private string GetModeText(string? mode)
+        {
+            return mode switch
+            {
+                "cool" => "制冷",
+                "heat" => "制热",
+                "fan" => "送风",
+                "dry" => "除湿",
+                "auto" => "自动",
+                _ => mode ?? "制冷"
+            };
+        }
+
+        private string GetDirectionText(string? direction)
+        {
+            return direction switch
+            {
+                "forward" => "正转",
+                "reverse" => "反转",
+                "stop" => "停止",
+                _ => "停止"
+            };
+        }
+
+        // ==================== ADO.NET 辅助方法 ====================
+
+        private DeviceModel MapToDeviceModel(System.Data.Common.DbDataReader reader)
+        {
+            return new DeviceModel
+            {
+                Id = reader.GetInt32(0),
+                Name = reader.IsDBNull(1) ? "" : reader.GetString(1),
+                DeviceNumber = reader.IsDBNull(2) ? "000" : reader.GetString(2),
+                FullDeviceId = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                RoomId = reader.GetInt32(4),
+                DeviceTypeId = reader.GetInt32(5),
+                RoomIdentifier = reader.IsDBNull(6) ? "unknown" : reader.GetString(6),
+                TypeIdentifier = reader.IsDBNull(7) ? "unknown" : reader.GetString(7),
+                Icon = reader.IsDBNull(8) ? "fa-microchip" : reader.GetString(8),
+                IsOn = reader.GetInt32(9) == 1,
+                StatusText = reader.IsDBNull(10) ? "离线" : reader.GetString(10),
+                Detail = reader.IsDBNull(11) ? "等待连接" : reader.GetString(11),
+                Progress = reader.GetInt32(12),
+                ProgressColor = reader.IsDBNull(13) ? null : reader.GetString(13),
+                Temperature = reader.IsDBNull(14) ? null : reader.GetDouble(14),
+                Humidity = reader.IsDBNull(15) ? null : reader.GetInt32(15),
+                MotorSpeed = reader.IsDBNull(16) ? null : reader.GetInt32(16),
+                Mode = reader.IsDBNull(17) ? null : reader.GetString(17),
+                SwingVertical = reader.IsDBNull(18) ? null : reader.GetBoolean(18),
+                SwingHorizontal = reader.IsDBNull(19) ? null : reader.GetBoolean(19),
+                Light = reader.IsDBNull(20) ? null : reader.GetBoolean(20),
+                Quiet = reader.IsDBNull(21) ? null : reader.GetBoolean(21),
+                Direction = reader.IsDBNull(22) ? null : reader.GetString(22),
+                CreatedAt = reader.GetDateTime(23),
+                UpdatedAt = reader.IsDBNull(24) ? null : reader.GetDateTime(24),
+                TemperatureValue = reader.IsDBNull(25) ? null : reader.GetDouble(25),
+                HumidityValue = reader.IsDBNull(26) ? null : reader.GetDouble(26),
+                BatteryLevel = reader.IsDBNull(27) ? null : reader.GetInt32(27),
+                Brightness = reader.IsDBNull(28) ? null : reader.GetInt32(28),
+                ColorTemperature = reader.IsDBNull(29) ? null : reader.GetInt32(29),
+                AcTemperature = reader.IsDBNull(30) ? null : reader.GetInt32(30),
+                AcMode = reader.IsDBNull(31) ? null : reader.GetString(31),
+                AcFanSpeed = reader.IsDBNull(32) ? null : reader.GetString(32),
+                AcSwingVertical = reader.IsDBNull(33) ? null : reader.GetBoolean(33),
+                AcSwingHorizontal = reader.IsDBNull(34) ? null : reader.GetBoolean(34),
+                AcLight = reader.IsDBNull(35) ? null : reader.GetBoolean(35),
+                AcQuiet = reader.IsDBNull(36) ? null : reader.GetBoolean(36),
+                FanSpeed = reader.IsDBNull(37) ? null : reader.GetInt32(37),
+                FanSwing = reader.IsDBNull(38) ? null : reader.GetBoolean(38),
+                MotorDirection = reader.IsDBNull(39) ? null : reader.GetString(39),
+                LastUnlockTime = reader.IsDBNull(40) ? null : reader.GetDateTime(40),
+                UnlockMethod = reader.IsDBNull(41) ? null : reader.GetString(41),
+                IsRecording = reader.IsDBNull(42) ? null : reader.GetBoolean(42),
+                MotionDetected = reader.IsDBNull(43) ? null : reader.GetBoolean(43),
+                NightMode = reader.IsDBNull(44) ? null : reader.GetString(44),
+                Power = reader.IsDBNull(45) ? "0W" : reader.GetString(45),
+                PowerValue = reader.GetDouble(46)
+            };
+        }
+
+        private async Task<DeviceModel?> GetDeviceByIdRawAsync(int id)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"
+                    SELECT 
+                        Id, Name, DeviceNumber, FullDeviceId, RoomId, DeviceTypeId,
+                        RoomIdentifier, TypeIdentifier, Icon, IsOn, StatusText, Detail,
+                        Progress, ProgressColor, Temperature, Humidity, MotorSpeed,
+                        Mode, SwingVertical, SwingHorizontal, Light, Quiet, Direction,
+                        CreatedAt, UpdatedAt, TemperatureValue, HumidityValue, BatteryLevel,
+                        Brightness, ColorTemperature, AcTemperature, AcMode, AcFanSpeed,
+                        AcSwingVertical, AcSwingHorizontal, AcLight, AcQuiet, FanSpeed, FanSwing,
+                        MotorDirection, LastUnlockTime, UnlockMethod, IsRecording, MotionDetected, NightMode,
+                        Power, PowerValue
+                    FROM Devices 
+                    WHERE Id = @id
+                    LIMIT 1";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@id";
+                idParam.Value = id;
+                cmd.Parameters.Add(idParam);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    return MapToDeviceModel(reader);
+                }
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"获取设备失败 ID: {id}");
+                return null;
+            }
+        }
+
+        private async Task<DeviceModel?> GetDeviceByFullIdRawAsync(string fullDeviceId)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"
+                    SELECT 
+                        Id, Name, DeviceNumber, FullDeviceId, RoomId, DeviceTypeId,
+                        RoomIdentifier, TypeIdentifier, Icon, IsOn, StatusText, Detail,
+                        Progress, ProgressColor, Temperature, Humidity, MotorSpeed,
+                        Mode, SwingVertical, SwingHorizontal, Light, Quiet, Direction,
+                        CreatedAt, UpdatedAt, TemperatureValue, HumidityValue, BatteryLevel,
+                        Brightness, ColorTemperature, AcTemperature, AcMode, AcFanSpeed,
+                        AcSwingVertical, AcSwingHorizontal, AcLight, AcQuiet, FanSpeed, FanSwing,
+                        MotorDirection, LastUnlockTime, UnlockMethod, IsRecording, MotionDetected, NightMode,
+                        Power, PowerValue
+                    FROM Devices 
+                    WHERE FullDeviceId = @fullDeviceId
+                    LIMIT 1";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@fullDeviceId";
+                idParam.Value = fullDeviceId;
+                cmd.Parameters.Add(idParam);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    return MapToDeviceModel(reader);
+                }
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"获取设备失败 FullDeviceId: {fullDeviceId}");
+                return null;
+            }
+        }
+
+        private async Task<List<DeviceModel>> GetAllDevicesRawAsync()
+        {
+            var devices = new List<DeviceModel>();
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"
+                    SELECT 
+                        Id, Name, DeviceNumber, FullDeviceId, RoomId, DeviceTypeId,
+                        RoomIdentifier, TypeIdentifier, Icon, IsOn, StatusText, Detail,
+                        Progress, ProgressColor, Temperature, Humidity, MotorSpeed,
+                        Mode, SwingVertical, SwingHorizontal, Light, Quiet, Direction,
+                        CreatedAt, UpdatedAt, TemperatureValue, HumidityValue, BatteryLevel,
+                        Brightness, ColorTemperature, AcTemperature, AcMode, AcFanSpeed,
+                        AcSwingVertical, AcSwingHorizontal, AcLight, AcQuiet, FanSpeed, FanSwing,
+                        MotorDirection, LastUnlockTime, UnlockMethod, IsRecording, MotionDetected, NightMode,
+                        Power, PowerValue
+                    FROM Devices";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    devices.Add(MapToDeviceModel(reader));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取所有设备失败");
+            }
+            return devices;
+        }
+
+        private async Task<RoomModel?> GetRoomByIdRawAsync(int id)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = "SELECT Id, RoomId, RoomName, Description, DeviceCount, OnlineCount, CreatedAt, UpdatedAt FROM Rooms WHERE Id = @id LIMIT 1";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@id";
+                idParam.Value = id;
+                cmd.Parameters.Add(idParam);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    return new RoomModel
+                    {
+                        Id = reader.GetInt32(0),
+                        RoomId = reader.GetString(1),
+                        RoomName = reader.GetString(2),
+                        Description = reader.IsDBNull(3) ? null : reader.GetString(3),
+                        DeviceCount = reader.GetInt32(4),
+                        OnlineCount = reader.GetInt32(5),
+                        CreatedAt = reader.GetDateTime(6),
+                        UpdatedAt = reader.IsDBNull(7) ? null : reader.GetDateTime(7)
+                    };
+                }
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"获取房间失败 ID: {id}");
+                return null;
+            }
+        }
+
         // ==================== 基本查询方法 ====================
 
-        // 获取所有设备（同步版本，兼容原有代码）
         public List<DeviceModel> GetAllDevices()
         {
             return Task.Run(async () => await GetAllDevicesAsync()).Result;
         }
 
-        // 获取所有设备（异步）
         public async Task<List<DeviceModel>> GetAllDevicesAsync()
         {
-            try
-            {
-                using var context = await _dbContextFactory.CreateDbContextAsync();
-                return await context.Devices
-                    .Include(d => d.Room)
-                    .Include(d => d.DeviceType)
-                    .OrderBy(d => d.RoomId)
-                    .ThenBy(d => d.TypeIdentifier)
-                    .ThenBy(d => d.DeviceNumber)
-                    .ToListAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "获取所有设备失败");
-                return new List<DeviceModel>();
-            }
+            return await GetAllDevicesRawAsync();
         }
 
-        // 根据房间获取设备
         public async Task<List<DeviceModel>> GetDevicesByRoomAsync(string roomId)
         {
-            try
-            {
-                using var context = await _dbContextFactory.CreateDbContextAsync();
-                return await context.Devices
-                    .Where(d => d.RoomIdentifier == roomId)
-                    .OrderBy(d => d.TypeIdentifier)
-                    .ThenBy(d => d.DeviceNumber)
-                    .ToListAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"获取房间 {roomId} 设备失败");
-                return new List<DeviceModel>();
-            }
+            var devices = await GetAllDevicesAsync();
+            return devices.Where(d => d.RoomIdentifier == roomId).ToList();
         }
 
-        // 根据类型获取设备
         public async Task<List<DeviceModel>> GetDevicesByTypeAsync(string typeId)
         {
-            try
-            {
-                using var context = await _dbContextFactory.CreateDbContextAsync();
-                return await context.Devices
-                    .Where(d => d.TypeIdentifier == typeId)
-                    .OrderBy(d => d.RoomIdentifier)
-                    .ThenBy(d => d.DeviceNumber)
-                    .ToListAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"获取类型 {typeId} 设备失败");
-                return new List<DeviceModel>();
-            }
+            var devices = await GetAllDevicesAsync();
+            return devices.Where(d => d.TypeIdentifier == typeId).ToList();
         }
 
-        // 根据完整设备ID获取设备
         public async Task<DeviceModel?> GetDeviceByFullIdAsync(string fullDeviceId)
         {
-            try
-            {
-                using var context = await _dbContextFactory.CreateDbContextAsync();
-                return await context.Devices
-                    .FirstOrDefaultAsync(d => d.FullDeviceId == fullDeviceId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"获取设备 {fullDeviceId} 失败");
-                return null;
-            }
+            return await GetDeviceByFullIdRawAsync(fullDeviceId);
         }
 
-        // 根据ID获取设备
         public async Task<DeviceModel?> GetDeviceByIdAsync(int id)
         {
-            try
-            {
-                using var context = await _dbContextFactory.CreateDbContextAsync();
-                return await context.Devices
-                    .Include(d => d.Room)
-                    .Include(d => d.DeviceType)
-                    .FirstOrDefaultAsync(d => d.Id == id);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"获取设备 ID {id} 失败");
-                return null;
-            }
+            return await GetDeviceByIdRawAsync(id);
         }
 
         // ==================== 分组查询方法 ====================
 
-        // 获取按房间分组的设备
         public async Task<Dictionary<string, List<DeviceModel>>> GetDevicesGroupedByRoomAsync()
         {
-            using var context = await _dbContextFactory.CreateDbContextAsync();
-            var devices = await context.Devices.ToListAsync();
-
+            var devices = await GetAllDevicesAsync();
             return devices
                 .GroupBy(d => d.RoomIdentifier)
                 .ToDictionary(g => g.Key, g => g.ToList());
         }
 
-        // 获取按类型分组的设备（指定房间）
         public async Task<Dictionary<string, List<DeviceModel>>> GetDevicesByRoomGroupedByTypeAsync(string roomId)
         {
-            using var context = await _dbContextFactory.CreateDbContextAsync();
-            var devices = await context.Devices
-                .Where(d => d.RoomIdentifier == roomId)
-                .ToListAsync();
-
-            return devices
+            var devices = await GetAllDevicesAsync();
+            var roomDevices = devices.Where(d => d.RoomIdentifier == roomId).ToList();
+            return roomDevices
                 .GroupBy(d => d.TypeIdentifier)
                 .ToDictionary(g => g.Key, g => g.ToList());
         }
 
-        // 获取所有房间的统计信息
         public async Task<Dictionary<string, (int total, int online)>> GetRoomStatsAsync()
         {
-            using var context = await _dbContextFactory.CreateDbContextAsync();
-            var devices = await context.Devices.ToListAsync();
-
+            var devices = await GetAllDevicesAsync();
             return devices
                 .GroupBy(d => d.RoomIdentifier)
                 .ToDictionary(
@@ -166,16 +355,13 @@ namespace SmartHomeDashboard.Services
                 );
         }
 
-        // 获取设备类型统计
         public async Task<List<DeviceTypeStat>> GetDeviceTypeStatsAsync()
         {
             using var context = await _dbContextFactory.CreateDbContextAsync();
-
             var deviceTypes = await context.DeviceTypes.ToListAsync();
-            var devices = await context.Devices.ToListAsync();
+            var devices = await GetAllDevicesAsync();
 
             var stats = new List<DeviceTypeStat>();
-
             foreach (var type in deviceTypes)
             {
                 var typeDevices = devices.Where(d => d.TypeIdentifier == type.TypeId).ToList();
@@ -188,38 +374,32 @@ namespace SmartHomeDashboard.Services
                     OnlineCount = typeDevices.Count(d => d.IsOn && d.StatusText != "离线")
                 });
             }
-
             return stats;
         }
 
         // ==================== 设备管理方法 ====================
 
-        // 添加设备（异步）
         public async Task<DeviceModel> AddDeviceAsync(DeviceAddModel newDevice)
         {
             try
             {
                 using var context = await _dbContextFactory.CreateDbContextAsync();
 
-                // 获取房间
                 var room = await context.Rooms.FirstOrDefaultAsync(r => r.RoomId == newDevice.RoomId);
                 if (room == null)
                 {
                     throw new Exception($"房间不存在: {newDevice.RoomId}");
                 }
 
-                // 获取设备类型
                 var deviceType = await context.DeviceTypes.FirstOrDefaultAsync(t => t.TypeId == newDevice.TypeId);
                 if (deviceType == null)
                 {
                     throw new Exception($"设备类型不存在: {newDevice.TypeId}");
                 }
 
-                // 生成设备编号
                 string deviceNumber = newDevice.DeviceNumber;
                 if (string.IsNullOrEmpty(deviceNumber))
                 {
-                    // 获取该房间该类型的最大编号
                     var existingDevices = await context.Devices
                         .Where(d => d.RoomIdentifier == newDevice.RoomId && d.TypeIdentifier == newDevice.TypeId)
                         .ToListAsync();
@@ -232,9 +412,8 @@ namespace SmartHomeDashboard.Services
                     deviceNumber = (maxNumber + 1).ToString("D3");
                 }
 
-                string fullDeviceId = $"{newDevice.RoomId}-{newDevice.TypeId}-{deviceNumber}";
+                string fullDeviceId = $"{GetTypeAbbr(newDevice.TypeId)}-{GetRoomAbbr(newDevice.RoomId)}-{deviceNumber}";
 
-                // 检查是否已存在
                 var exists = await context.Devices.AnyAsync(d => d.FullDeviceId == fullDeviceId);
                 if (exists)
                 {
@@ -243,11 +422,9 @@ namespace SmartHomeDashboard.Services
 
                 double powerValue = ParsePowerValue(newDevice.Power);
 
-                // 新设备默认为离线状态
                 string statusText = "离线";
                 string detail = "等待连接";
 
-                // 根据设备类型设置详情
                 switch (newDevice.TypeId)
                 {
                     case "ac": detail = "空调 · 等待连接"; break;
@@ -277,18 +454,32 @@ namespace SmartHomeDashboard.Services
                     PowerValue = powerValue,
                     Progress = newDevice.Progress,
                     ProgressColor = "#a0a0a0",
-                    Temperature = newDevice.Temperature,
-                    Humidity = newDevice.Humidity,
-                    MotorSpeed = newDevice.MotorSpeed,
-                    Mode = newDevice.Mode,
-                    Direction = newDevice.Direction,
+
+                    TemperatureValue = newDevice.TypeId == "temp-sensor" ? (newDevice.TemperatureValue ?? newDevice.Temperature) : null,
+                    HumidityValue = newDevice.TypeId == "humidity-sensor" ? (newDevice.HumidityValue ?? (newDevice.Humidity.HasValue ? newDevice.Humidity.Value : (double?)null)) : null,
+                    BatteryLevel = newDevice.BatteryLevel ?? newDevice.Humidity,
+                    Brightness = newDevice.Brightness,
+                    ColorTemperature = newDevice.ColorTemperature,
+                    AcTemperature = newDevice.TypeId == "ac" ? (newDevice.AcTemperature ?? (int?)(newDevice.Temperature)) : null,
+                    AcMode = newDevice.AcMode ?? newDevice.Mode,
+                    AcFanSpeed = newDevice.AcFanSpeed,
+                    FanSpeed = newDevice.TypeId == "fan" ? (newDevice.FanSpeed ?? newDevice.MotorSpeed) : null,
+                    MotorSpeed = newDevice.TypeId == "motor" ? newDevice.MotorSpeed : null,
+                    MotorDirection = newDevice.MotorDirection ?? newDevice.Direction,
+
+                    Temperature = newDevice.TypeId == "temp-sensor" ? (newDevice.TemperatureValue ?? newDevice.Temperature) :
+                                 newDevice.TypeId == "humidity-sensor" ? (newDevice.HumidityValue ?? (newDevice.Humidity.HasValue ? newDevice.Humidity.Value : (double?)null)) :
+                                 newDevice.TypeId == "ac" ? newDevice.AcTemperature ?? newDevice.Temperature : newDevice.Temperature,
+                    Humidity = (newDevice.BatteryLevel ?? newDevice.Humidity) ?? (newDevice.TypeId == "humidity-sensor" ? (int?)(newDevice.HumidityValue ?? newDevice.Temperature) : null),
+                    Mode = newDevice.AcMode ?? newDevice.Mode,
+                    Direction = newDevice.MotorDirection ?? newDevice.Direction,
+
                     CreatedAt = DateTime.Now
                 };
 
                 await context.Devices.AddAsync(device);
                 await context.SaveChangesAsync();
 
-                // 更新房间设备计数
                 room.DeviceCount = await context.Devices.CountAsync(d => d.RoomIdentifier == room.RoomId);
                 room.OnlineCount = await context.Devices.CountAsync(d => d.RoomIdentifier == room.RoomId && d.IsOn && d.StatusText != "离线");
                 await context.SaveChangesAsync();
@@ -303,37 +494,77 @@ namespace SmartHomeDashboard.Services
             }
         }
 
-        // 添加设备（同步版本）
         public DeviceModel AddDevice(DeviceAddModel newDevice)
         {
             return Task.Run(async () => await AddDeviceAsync(newDevice)).Result;
         }
 
-        // 删除设备（异步）
         public async Task<bool> DeleteDeviceAsync(int id)
         {
             try
             {
+                var device = await GetDeviceByIdRawAsync(id);
+                if (device == null) return false;
+
                 using var context = await _dbContextFactory.CreateDbContextAsync();
-                var device = await context.Devices.FindAsync(id);
-                if (device != null)
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                using (var cmd = connection.CreateCommand())
                 {
-                    context.Devices.Remove(device);
-                    await context.SaveChangesAsync();
-
-                    // 更新房间统计
-                    var room = await context.Rooms.FindAsync(device.RoomId);
-                    if (room != null)
-                    {
-                        room.DeviceCount = await context.Devices.CountAsync(d => d.RoomIdentifier == room.RoomId);
-                        room.OnlineCount = await context.Devices.CountAsync(d => d.RoomIdentifier == room.RoomId && d.IsOn && d.StatusText != "离线");
-                        await context.SaveChangesAsync();
-                    }
-
-                    _logger.LogInformation($"设备删除成功: ID {id}, {device.FullDeviceId}");
-                    return true;
+                    cmd.CommandText = "DELETE FROM Devices WHERE Id = @id";
+                    var idParam = cmd.CreateParameter();
+                    idParam.ParameterName = "@id";
+                    idParam.Value = id;
+                    cmd.Parameters.Add(idParam);
+                    await cmd.ExecuteNonQueryAsync();
                 }
-                return false;
+
+                int deviceCount, onlineCount;
+
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT COUNT(*) FROM Devices WHERE RoomIdentifier = @roomId";
+                    var roomIdParam = cmd.CreateParameter();
+                    roomIdParam.ParameterName = "@roomId";
+                    roomIdParam.Value = device.RoomIdentifier;
+                    cmd.Parameters.Add(roomIdParam);
+                    deviceCount = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+                }
+
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT COUNT(*) FROM Devices WHERE RoomIdentifier = @roomId AND IsOn = 1 AND StatusText != '离线'";
+                    var roomIdParam = cmd.CreateParameter();
+                    roomIdParam.ParameterName = "@roomId";
+                    roomIdParam.Value = device.RoomIdentifier;
+                    cmd.Parameters.Add(roomIdParam);
+                    onlineCount = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+                }
+
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.CommandText = "UPDATE Rooms SET DeviceCount = @deviceCount, OnlineCount = @onlineCount WHERE Id = @roomId";
+                    var deviceCountParam = cmd.CreateParameter();
+                    deviceCountParam.ParameterName = "@deviceCount";
+                    deviceCountParam.Value = deviceCount;
+                    cmd.Parameters.Add(deviceCountParam);
+
+                    var onlineCountParam = cmd.CreateParameter();
+                    onlineCountParam.ParameterName = "@onlineCount";
+                    onlineCountParam.Value = onlineCount;
+                    cmd.Parameters.Add(onlineCountParam);
+
+                    var roomIdParam = cmd.CreateParameter();
+                    roomIdParam.ParameterName = "@roomId";
+                    roomIdParam.Value = device.RoomId;
+                    cmd.Parameters.Add(roomIdParam);
+
+                    await cmd.ExecuteNonQueryAsync();
+                }
+
+                _logger.LogInformation($"设备删除成功: ID {id}, {device.FullDeviceId}");
+                return true;
             }
             catch (Exception ex)
             {
@@ -342,7 +573,6 @@ namespace SmartHomeDashboard.Services
             }
         }
 
-        // 删除设备（同步版本）
         public bool DeleteDevice(int id)
         {
             return Task.Run(async () => await DeleteDeviceAsync(id)).Result;
@@ -350,41 +580,105 @@ namespace SmartHomeDashboard.Services
 
         // ==================== 设备状态更新方法 ====================
 
-        // 更新设备状态
         public async Task<bool> UpdateDeviceStatusAsync(int id, bool isOn, string statusText)
         {
             try
             {
                 using var context = await _dbContextFactory.CreateDbContextAsync();
-                var device = await context.Devices.FindAsync(id);
-                if (device != null)
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"UPDATE Devices 
+                           SET IsOn = @isOn, 
+                               StatusText = @statusText, 
+                               Detail = CASE 
+                                   WHEN @isOn = 0 AND @statusText = '离线' THEN 
+                                       CASE TypeIdentifier
+                                           WHEN 'temp-sensor' THEN '温度传感器 · 离线'
+                                           WHEN 'humidity-sensor' THEN '湿度传感器 · 离线'
+                                           WHEN 'ac' THEN '空调 · 离线'
+                                           WHEN 'lock' THEN '门锁 · 离线'
+                                           WHEN 'camera' THEN '摄像头 · 离线'
+                                           WHEN 'fan' THEN '风扇 · 离线'
+                                           WHEN 'motor' THEN '电机 · 离线'
+                                           WHEN 'light' THEN '灯光 · 离线'
+                                           ELSE '设备 · 离线'
+                                       END
+                                   WHEN @isOn = 1 AND @statusText != '离线' THEN
+                                       CASE TypeIdentifier
+                                           WHEN 'temp-sensor' THEN '温度传感器 · 在线'
+                                           WHEN 'humidity-sensor' THEN '湿度传感器 · 在线'
+                                           WHEN 'ac' THEN '空调 · 在线'
+                                           WHEN 'lock' THEN '门锁 · 在线'
+                                           WHEN 'camera' THEN '摄像头 · 在线'
+                                           WHEN 'fan' THEN '风扇 · 在线'
+                                           WHEN 'motor' THEN '电机 · 在线'
+                                           WHEN 'light' THEN '灯光 · 在线'
+                                           ELSE '设备 · 在线'
+                                       END
+                                   ELSE Detail
+                               END,
+                               ProgressColor = CASE WHEN @isOn = 1 AND @statusText != '离线' THEN '#4caf50' ELSE '#a0a0a0' END,
+                               UpdatedAt = @now
+                           WHERE Id = @id";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var isOnParam = cmd.CreateParameter();
+                isOnParam.ParameterName = "@isOn";
+                isOnParam.Value = isOn ? 1 : 0;
+                cmd.Parameters.Add(isOnParam);
+
+                var statusParam = cmd.CreateParameter();
+                statusParam.ParameterName = "@statusText";
+                statusParam.Value = statusText;
+                cmd.Parameters.Add(statusParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@id";
+                idParam.Value = id;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+
+                var room = await GetRoomByIdRawAsync((await GetDeviceByIdRawAsync(id))?.RoomId ?? 0);
+                if (room != null)
                 {
-                    device.IsOn = isOn;
-                    device.StatusText = statusText;
-                    device.UpdatedAt = DateTime.Now;
-
-                    if (!isOn && statusText == "离线")
+                    int onlineCount;
+                    using (var countCmd = connection.CreateCommand())
                     {
-                        device.ProgressColor = "#a0a0a0";
-                    }
-                    else
-                    {
-                        device.ProgressColor = device.IsOn ? null : "#a0b8d0";
+                        countCmd.CommandText = "SELECT COUNT(*) FROM Devices WHERE RoomId = @roomId AND IsOn = 1 AND StatusText != '离线'";
+                        var roomIdParam = countCmd.CreateParameter();
+                        roomIdParam.ParameterName = "@roomId";
+                        roomIdParam.Value = room.Id;
+                        countCmd.Parameters.Add(roomIdParam);
+                        onlineCount = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
                     }
 
-                    await context.SaveChangesAsync();
-
-                    // 更新房间在线计数
-                    var room = await context.Rooms.FindAsync(device.RoomId);
-                    if (room != null)
+                    using (var updateCmd = connection.CreateCommand())
                     {
-                        room.OnlineCount = await context.Devices.CountAsync(d => d.RoomId == room.Id && d.IsOn && d.StatusText != "离线");
-                        await context.SaveChangesAsync();
-                    }
+                        updateCmd.CommandText = "UPDATE Rooms SET OnlineCount = @onlineCount WHERE Id = @roomId";
+                        var onlineCountParam = updateCmd.CreateParameter();
+                        onlineCountParam.ParameterName = "@onlineCount";
+                        onlineCountParam.Value = onlineCount;
+                        updateCmd.Parameters.Add(onlineCountParam);
 
-                    return true;
+                        var roomIdParam = updateCmd.CreateParameter();
+                        roomIdParam.ParameterName = "@roomId";
+                        roomIdParam.Value = room.Id;
+                        updateCmd.Parameters.Add(roomIdParam);
+
+                        await updateCmd.ExecuteNonQueryAsync();
+                    }
                 }
-                return false;
+
+                return true;
             }
             catch (Exception ex)
             {
@@ -398,25 +692,153 @@ namespace SmartHomeDashboard.Services
             return Task.Run(async () => await UpdateDeviceStatusAsync(id, isOn, statusText)).Result;
         }
 
-        // 更新设备温度
+        // ==================== 传感器专用更新方法 ====================
+
+        public async Task<bool> UpdateTemperatureSensorAsync(int id, double temperature, int? batteryLevel = null)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"UPDATE Devices 
+                           SET TemperatureValue = @temperature,
+                               Temperature = @temperature,
+                               StatusText = CASE WHEN IsOn = 1 THEN @statusText ELSE StatusText END,
+                               BatteryLevel = COALESCE(@batteryLevel, BatteryLevel),
+                               Humidity = COALESCE(@batteryLevel, Humidity),
+                               UpdatedAt = @now
+                           WHERE Id = @id";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var tempParam = cmd.CreateParameter();
+                tempParam.ParameterName = "@temperature";
+                tempParam.Value = temperature;
+                cmd.Parameters.Add(tempParam);
+
+                var statusParam = cmd.CreateParameter();
+                statusParam.ParameterName = "@statusText";
+                statusParam.Value = $"温度 {temperature:F1}°C";
+                cmd.Parameters.Add(statusParam);
+
+                var batteryParam = cmd.CreateParameter();
+                batteryParam.ParameterName = "@batteryLevel";
+                batteryParam.Value = batteryLevel.HasValue ? (object)batteryLevel.Value : DBNull.Value;
+                cmd.Parameters.Add(batteryParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@id";
+                idParam.Value = id;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                _logger.LogInformation($"温度传感器 ID:{id} 更新: 温度={temperature}°C, 电量={batteryLevel}%");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"更新温度传感器失败 ID: {id}");
+                return false;
+            }
+        }
+
+        public async Task<bool> UpdateHumiditySensorAsync(int id, double humidity, int? batteryLevel = null)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"UPDATE Devices 
+                           SET HumidityValue = @humidity,
+                               Temperature = @humidity,
+                               StatusText = CASE WHEN IsOn = 1 THEN @statusText ELSE StatusText END,
+                               BatteryLevel = COALESCE(@batteryLevel, BatteryLevel),
+                               Humidity = COALESCE(@batteryLevel, Humidity),
+                               UpdatedAt = @now
+                           WHERE Id = @id";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var humParam = cmd.CreateParameter();
+                humParam.ParameterName = "@humidity";
+                humParam.Value = humidity;
+                cmd.Parameters.Add(humParam);
+
+                var statusParam = cmd.CreateParameter();
+                statusParam.ParameterName = "@statusText";
+                statusParam.Value = $"湿度 {humidity:F0}%";
+                cmd.Parameters.Add(statusParam);
+
+                var batteryParam = cmd.CreateParameter();
+                batteryParam.ParameterName = "@batteryLevel";
+                batteryParam.Value = batteryLevel.HasValue ? (object)batteryLevel.Value : DBNull.Value;
+                cmd.Parameters.Add(batteryParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@id";
+                idParam.Value = id;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                _logger.LogInformation($"湿度传感器 ID:{id} 更新: 湿度={humidity}%, 电量={batteryLevel}%");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"更新湿度传感器失败 ID: {id}");
+                return false;
+            }
+        }
+
         public async Task<bool> UpdateDeviceTemperatureAsync(int id, double temperature)
         {
             try
             {
                 using var context = await _dbContextFactory.CreateDbContextAsync();
-                var device = await context.Devices.FindAsync(id);
-                if (device != null && device.TypeIdentifier == "temp-sensor")
-                {
-                    device.Temperature = temperature;
-                    device.UpdatedAt = DateTime.Now;
-                    if (device.IsOn)
-                    {
-                        device.StatusText = $"温度 {temperature:F1}°C";
-                    }
-                    await context.SaveChangesAsync();
-                    return true;
-                }
-                return false;
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"UPDATE Devices 
+                           SET Temperature = @temperature,
+                               UpdatedAt = @now
+                           WHERE Id = @id";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var tempParam = cmd.CreateParameter();
+                tempParam.ParameterName = "@temperature";
+                tempParam.Value = temperature;
+                cmd.Parameters.Add(tempParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@id";
+                idParam.Value = id;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                return true;
             }
             catch (Exception ex)
             {
@@ -425,52 +847,94 @@ namespace SmartHomeDashboard.Services
             }
         }
 
-        // 更新设备湿度/电量
         public async Task<bool> UpdateDeviceHumidityAsync(int id, int humidity)
         {
             try
             {
                 using var context = await _dbContextFactory.CreateDbContextAsync();
-                var device = await context.Devices.FindAsync(id);
-                if (device != null)
-                {
-                    device.Humidity = humidity;
-                    device.UpdatedAt = DateTime.Now;
-                    if (device.TypeIdentifier == "humidity-sensor" && device.IsOn)
-                    {
-                        device.StatusText = $"湿度 {humidity}%";
-                    }
-                    await context.SaveChangesAsync();
-                    return true;
-                }
-                return false;
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"UPDATE Devices 
+                           SET Humidity = @humidity,
+                               UpdatedAt = @now
+                           WHERE Id = @id";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var humParam = cmd.CreateParameter();
+                humParam.ParameterName = "@humidity";
+                humParam.Value = humidity;
+                cmd.Parameters.Add(humParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@id";
+                idParam.Value = id;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"更新设备湿度失败 ID: {id}");
+                _logger.LogError(ex, $"更新设备湿度/电量失败 ID: {id}");
                 return false;
             }
         }
 
-        // 更新设备电机/风扇转速
         public async Task<bool> UpdateDeviceMotorSpeedAsync(int id, int speed)
         {
             try
             {
                 using var context = await _dbContextFactory.CreateDbContextAsync();
-                var device = await context.Devices.FindAsync(id);
-                if (device != null && (device.TypeIdentifier == "motor" || device.TypeIdentifier == "fan"))
-                {
-                    device.MotorSpeed = speed;
-                    device.UpdatedAt = DateTime.Now;
-                    if (device.TypeIdentifier == "fan" && device.IsOn)
-                    {
-                        device.StatusText = $"风速 {speed}档";
-                    }
-                    await context.SaveChangesAsync();
-                    return true;
-                }
-                return false;
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"UPDATE Devices 
+                           SET MotorSpeed = @speed,
+                               FanSpeed = CASE WHEN TypeIdentifier = 'fan' THEN @speed ELSE FanSpeed END,
+                               StatusText = CASE WHEN TypeIdentifier = 'fan' AND IsOn = 1 THEN @fanStatus 
+                                                WHEN TypeIdentifier = 'motor' AND IsOn = 1 THEN @motorStatus
+                                                ELSE StatusText END,
+                               UpdatedAt = @now
+                           WHERE Id = @id";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var speedParam = cmd.CreateParameter();
+                speedParam.ParameterName = "@speed";
+                speedParam.Value = speed;
+                cmd.Parameters.Add(speedParam);
+
+                var fanStatusParam = cmd.CreateParameter();
+                fanStatusParam.ParameterName = "@fanStatus";
+                fanStatusParam.Value = $"风速 {speed}档";
+                cmd.Parameters.Add(fanStatusParam);
+
+                var motorStatusParam = cmd.CreateParameter();
+                motorStatusParam.ParameterName = "@motorStatus";
+                motorStatusParam.Value = $"{GetDirectionText(await GetMotorDirectionAsync(id))} {speed}rpm";
+                cmd.Parameters.Add(motorStatusParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@id";
+                idParam.Value = id;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                return true;
             }
             catch (Exception ex)
             {
@@ -479,36 +943,66 @@ namespace SmartHomeDashboard.Services
             }
         }
 
-        // 更新设备模式（空调）
+        private async Task<string?> GetMotorDirectionAsync(int id)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = "SELECT MotorDirection FROM Devices WHERE Id = @id";
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@id";
+                idParam.Value = id;
+                cmd.Parameters.Add(idParam);
+
+                var result = await cmd.ExecuteScalarAsync();
+                return result?.ToString();
+            }
+            catch
+            {
+                return "stop";
+            }
+        }
+
         public async Task<bool> UpdateDeviceModeAsync(int id, string mode)
         {
             try
             {
                 using var context = await _dbContextFactory.CreateDbContextAsync();
-                var device = await context.Devices.FindAsync(id);
-                if (device != null && device.TypeIdentifier == "ac")
-                {
-                    device.Mode = mode;
-                    device.UpdatedAt = DateTime.Now;
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
 
-                    if (device.IsOn)
-                    {
-                        string modeText = mode switch
-                        {
-                            "cool" => "制冷",
-                            "heat" => "制热",
-                            "fan" => "送风",
-                            "dry" => "除湿",
-                            "auto" => "自动",
-                            _ => mode
-                        };
-                        device.StatusText = $"{modeText} {device.Temperature ?? 23}°C";
-                    }
+                var sql = @"UPDATE Devices 
+                           SET AcMode = @mode,
+                               Mode = @mode,
+                               UpdatedAt = @now
+                           WHERE Id = @id";
 
-                    await context.SaveChangesAsync();
-                    return true;
-                }
-                return false;
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var modeParam = cmd.CreateParameter();
+                modeParam.ParameterName = "@mode";
+                modeParam.Value = mode;
+                cmd.Parameters.Add(modeParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@id";
+                idParam.Value = id;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                return true;
             }
             catch (Exception ex)
             {
@@ -517,30 +1011,40 @@ namespace SmartHomeDashboard.Services
             }
         }
 
-        // 更新设备方向（电机）
         public async Task<bool> UpdateDeviceDirectionAsync(int id, string direction)
         {
             try
             {
                 using var context = await _dbContextFactory.CreateDbContextAsync();
-                var device = await context.Devices.FindAsync(id);
-                if (device != null && device.TypeIdentifier == "motor")
-                {
-                    device.Direction = direction;
-                    device.UpdatedAt = DateTime.Now;
-                    if (device.IsOn)
-                    {
-                        device.StatusText = direction switch
-                        {
-                            "forward" => "正转",
-                            "reverse" => "反转",
-                            _ => "停止"
-                        };
-                    }
-                    await context.SaveChangesAsync();
-                    return true;
-                }
-                return false;
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"UPDATE Devices 
+                           SET MotorDirection = @direction,
+                               Direction = @direction,
+                               UpdatedAt = @now
+                           WHERE Id = @id";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var dirParam = cmd.CreateParameter();
+                dirParam.ParameterName = "@direction";
+                dirParam.Value = direction;
+                cmd.Parameters.Add(dirParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@id";
+                idParam.Value = id;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                return true;
             }
             catch (Exception ex)
             {
@@ -549,36 +1053,40 @@ namespace SmartHomeDashboard.Services
             }
         }
 
-        // 更新空调温度
         public async Task<bool> UpdateDeviceAcTemperatureAsync(int id, double temperature)
         {
             try
             {
                 using var context = await _dbContextFactory.CreateDbContextAsync();
-                var device = await context.Devices.FindAsync(id);
-                if (device != null && device.TypeIdentifier == "ac")
-                {
-                    device.Temperature = temperature;
-                    device.UpdatedAt = DateTime.Now;
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
 
-                    if (device.IsOn)
-                    {
-                        string modeText = device.Mode switch
-                        {
-                            "cool" => "制冷",
-                            "heat" => "制热",
-                            "fan" => "送风",
-                            "dry" => "除湿",
-                            "auto" => "自动",
-                            _ => device.Mode ?? "制冷"
-                        };
-                        device.StatusText = $"{modeText} {temperature}°C";
-                    }
+                var sql = @"UPDATE Devices 
+                           SET AcTemperature = @temperature,
+                               Temperature = @temperature,
+                               UpdatedAt = @now
+                           WHERE Id = @id";
 
-                    await context.SaveChangesAsync();
-                    return true;
-                }
-                return false;
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var tempParam = cmd.CreateParameter();
+                tempParam.ParameterName = "@temperature";
+                tempParam.Value = temperature;
+                cmd.Parameters.Add(tempParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@id";
+                idParam.Value = id;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                return true;
             }
             catch (Exception ex)
             {
@@ -587,22 +1095,48 @@ namespace SmartHomeDashboard.Services
             }
         }
 
-        // 更新设备功率
         public async Task<bool> UpdateDevicePowerAsync(int id, double power)
         {
             try
             {
                 using var context = await _dbContextFactory.CreateDbContextAsync();
-                var device = await context.Devices.FindAsync(id);
-                if (device != null)
-                {
-                    device.PowerValue = power / 1000;
-                    device.Power = power >= 1000 ? $"{(power / 1000):F2}kW" : $"{power:F0}W";
-                    device.UpdatedAt = DateTime.Now;
-                    await context.SaveChangesAsync();
-                    return true;
-                }
-                return false;
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var powerKW = power / 1000;
+                var powerDisplay = power >= 1000 ? $"{(power / 1000):F2}kW" : $"{power:F0}W";
+
+                var sql = @"UPDATE Devices 
+                           SET PowerValue = @powerValue,
+                               Power = @powerDisplay,
+                               UpdatedAt = @now
+                           WHERE Id = @id";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var powerValueParam = cmd.CreateParameter();
+                powerValueParam.ParameterName = "@powerValue";
+                powerValueParam.Value = powerKW;
+                cmd.Parameters.Add(powerValueParam);
+
+                var powerDisplayParam = cmd.CreateParameter();
+                powerDisplayParam.ParameterName = "@powerDisplay";
+                powerDisplayParam.Value = powerDisplay;
+                cmd.Parameters.Add(powerDisplayParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@id";
+                idParam.Value = id;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                return true;
             }
             catch (Exception ex)
             {
@@ -615,169 +1149,207 @@ namespace SmartHomeDashboard.Services
 
         public async Task<bool> UpdateDeviceSwingVerticalAsync(int id, bool enabled)
         {
-            try
-            {
-                using var context = await _dbContextFactory.CreateDbContextAsync();
-                var device = await context.Devices.FindAsync(id);
-                if (device != null && device.TypeIdentifier == "ac")
-                {
-                    device.SwingVertical = enabled;
-                    device.UpdatedAt = DateTime.Now;
-                    await context.SaveChangesAsync();
-                    return true;
-                }
-                return false;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"更新空调上下扫风失败 ID: {id}");
-                return false;
-            }
+            return await UpdateBoolFieldAsync(id, "AcSwingVertical", "SwingVertical", enabled);
         }
 
         public async Task<bool> UpdateDeviceSwingHorizontalAsync(int id, bool enabled)
         {
-            try
-            {
-                using var context = await _dbContextFactory.CreateDbContextAsync();
-                var device = await context.Devices.FindAsync(id);
-                if (device != null && device.TypeIdentifier == "ac")
-                {
-                    device.SwingHorizontal = enabled;
-                    device.UpdatedAt = DateTime.Now;
-                    await context.SaveChangesAsync();
-                    return true;
-                }
-                return false;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"更新空调左右扫风失败 ID: {id}");
-                return false;
-            }
+            return await UpdateBoolFieldAsync(id, "AcSwingHorizontal", "SwingHorizontal", enabled);
         }
 
         public async Task<bool> UpdateDeviceLightAsync(int id, bool enabled)
         {
-            try
-            {
-                using var context = await _dbContextFactory.CreateDbContextAsync();
-                var device = await context.Devices.FindAsync(id);
-                if (device != null && device.TypeIdentifier == "ac")
-                {
-                    device.Light = enabled;
-                    device.UpdatedAt = DateTime.Now;
-                    await context.SaveChangesAsync();
-                    return true;
-                }
-                return false;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"更新空调灯光失败 ID: {id}");
-                return false;
-            }
+            return await UpdateBoolFieldAsync(id, "AcLight", "Light", enabled);
         }
 
         public async Task<bool> UpdateDeviceQuietAsync(int id, bool enabled)
         {
+            return await UpdateBoolFieldAsync(id, "AcQuiet", "Quiet", enabled);
+        }
+
+        private async Task<bool> UpdateBoolFieldAsync(int id, string newField, string oldField, bool value)
+        {
             try
             {
                 using var context = await _dbContextFactory.CreateDbContextAsync();
-                var device = await context.Devices.FindAsync(id);
-                if (device != null && device.TypeIdentifier == "ac")
-                {
-                    device.Quiet = enabled;
-                    device.UpdatedAt = DateTime.Now;
-                    await context.SaveChangesAsync();
-                    return true;
-                }
-                return false;
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = $"UPDATE Devices SET {newField} = @value, {oldField} = @value, UpdatedAt = @now WHERE Id = @id";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var valParam = cmd.CreateParameter();
+                valParam.ParameterName = "@value";
+                valParam.Value = value ? 1 : 0;
+                cmd.Parameters.Add(valParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@id";
+                idParam.Value = id;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"更新空调静音失败 ID: {id}");
+                _logger.LogError(ex, $"更新布尔字段失败 ID: {id}");
                 return false;
             }
         }
 
         // ==================== 批量操作方法 ====================
 
-        // 批量更新设备（用于TCP批量更新）
         public async Task<int> BulkUpdateDevicesAsync(List<DeviceModel> updatedDevices)
         {
-            try
+            int updateCount = 0;
+            foreach (var device in updatedDevices)
             {
-                using var context = await _dbContextFactory.CreateDbContextAsync();
-                int updateCount = 0;
-                var affectedRooms = new HashSet<int>();
-
-                foreach (var updatedDevice in updatedDevices)
+                try
                 {
-                    var existingDevice = await context.Devices.FindAsync(updatedDevice.Id);
-                    if (existingDevice != null)
-                    {
-                        existingDevice.IsOn = updatedDevice.IsOn;
-                        existingDevice.StatusText = updatedDevice.StatusText;
-                        existingDevice.Temperature = updatedDevice.Temperature;
-                        existingDevice.Humidity = updatedDevice.Humidity;
-                        existingDevice.MotorSpeed = updatedDevice.MotorSpeed;
-                        existingDevice.Mode = updatedDevice.Mode;
-                        existingDevice.Direction = updatedDevice.Direction;
-                        existingDevice.PowerValue = updatedDevice.PowerValue;
-                        existingDevice.Power = updatedDevice.Power;
-                        existingDevice.UpdatedAt = DateTime.Now;
+                    using var context = await _dbContextFactory.CreateDbContextAsync();
+                    var connection = context.Database.GetDbConnection();
+                    await connection.OpenAsync();
 
-                        affectedRooms.Add(existingDevice.RoomId);
-                        updateCount++;
-                    }
+                    var sql = @"UPDATE Devices 
+                               SET IsOn = @isOn,
+                                   StatusText = @statusText,
+                                   TemperatureValue = @temperatureValue,
+                                   HumidityValue = @humidityValue,
+                                   BatteryLevel = @batteryLevel,
+                                   Brightness = @brightness,
+                                   ColorTemperature = @colorTemperature,
+                                   AcTemperature = @acTemperature,
+                                   AcMode = @acMode,
+                                   AcFanSpeed = @acFanSpeed,
+                                   AcSwingVertical = @acSwingVertical,
+                                   AcSwingHorizontal = @acSwingHorizontal,
+                                   AcLight = @acLight,
+                                   AcQuiet = @acQuiet,
+                                   FanSpeed = @fanSpeed,
+                                   FanSwing = @fanSwing,
+                                   MotorSpeed = @motorSpeed,
+                                   MotorDirection = @motorDirection,
+                                   LastUnlockTime = @lastUnlockTime,
+                                   UnlockMethod = @unlockMethod,
+                                   IsRecording = @isRecording,
+                                   MotionDetected = @motionDetected,
+                                   NightMode = @nightMode,
+                                   Temperature = @temperature,
+                                   Humidity = @humidity,
+                                   Mode = @mode,
+                                   Direction = @direction,
+                                   PowerValue = @powerValue,
+                                   Power = @power,
+                                   UpdatedAt = @now
+                               WHERE Id = @id";
+
+                    using var cmd = connection.CreateCommand();
+                    cmd.CommandText = sql;
+
+                    AddParameter(cmd, "@isOn", device.IsOn ? 1 : 0);
+                    AddParameter(cmd, "@statusText", device.StatusText ?? "");
+                    AddParameter(cmd, "@temperatureValue", device.TemperatureValue);
+                    AddParameter(cmd, "@humidityValue", device.HumidityValue);
+                    AddParameter(cmd, "@batteryLevel", device.BatteryLevel);
+                    AddParameter(cmd, "@brightness", device.Brightness);
+                    AddParameter(cmd, "@colorTemperature", device.ColorTemperature);
+                    AddParameter(cmd, "@acTemperature", device.AcTemperature);
+                    AddParameter(cmd, "@acMode", device.AcMode);
+                    AddParameter(cmd, "@acFanSpeed", device.AcFanSpeed);
+                    AddParameter(cmd, "@acSwingVertical", device.AcSwingVertical);
+                    AddParameter(cmd, "@acSwingHorizontal", device.AcSwingHorizontal);
+                    AddParameter(cmd, "@acLight", device.AcLight);
+                    AddParameter(cmd, "@acQuiet", device.AcQuiet);
+                    AddParameter(cmd, "@fanSpeed", device.FanSpeed);
+                    AddParameter(cmd, "@fanSwing", device.FanSwing);
+                    AddParameter(cmd, "@motorSpeed", device.MotorSpeed);
+                    AddParameter(cmd, "@motorDirection", device.MotorDirection);
+                    AddParameter(cmd, "@lastUnlockTime", device.LastUnlockTime);
+                    AddParameter(cmd, "@unlockMethod", device.UnlockMethod);
+                    AddParameter(cmd, "@isRecording", device.IsRecording);
+                    AddParameter(cmd, "@motionDetected", device.MotionDetected);
+                    AddParameter(cmd, "@nightMode", device.NightMode);
+                    AddParameter(cmd, "@temperature", device.Temperature);
+                    AddParameter(cmd, "@humidity", device.Humidity);
+                    AddParameter(cmd, "@mode", device.Mode);
+                    AddParameter(cmd, "@direction", device.Direction);
+                    AddParameter(cmd, "@powerValue", device.PowerValue);
+                    AddParameter(cmd, "@power", device.Power ?? "");
+                    AddParameter(cmd, "@now", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    AddParameter(cmd, "@id", device.Id);
+
+                    await cmd.ExecuteNonQueryAsync();
+                    updateCount++;
                 }
-
-                await context.SaveChangesAsync();
-
-                // 更新受影响的房间统计
-                foreach (var roomId in affectedRooms)
+                catch (Exception ex)
                 {
-                    var room = await context.Rooms.FindAsync(roomId);
-                    if (room != null)
-                    {
-                        room.OnlineCount = await context.Devices.CountAsync(d => d.RoomId == roomId && d.IsOn && d.StatusText != "离线");
-                    }
+                    _logger.LogError(ex, $"批量更新设备失败 ID: {device.Id}");
                 }
-                await context.SaveChangesAsync();
-
-                return updateCount;
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "批量更新设备失败");
-                return 0;
-            }
+            return updateCount;
         }
 
-        // 重置所有设备为离线
+        private void AddParameter(System.Data.Common.DbCommand cmd, string name, object? value)
+        {
+            var param = cmd.CreateParameter();
+            param.ParameterName = name;
+            param.Value = value ?? DBNull.Value;
+            cmd.Parameters.Add(param);
+        }
+
         public async Task ResetAllDevicesToOfflineAsync()
         {
             try
             {
                 using var context = await _dbContextFactory.CreateDbContextAsync();
-                var devices = await context.Devices.ToListAsync();
-                foreach (var device in devices)
-                {
-                    device.IsOn = false;
-                    device.StatusText = "离线";
-                    device.ProgressColor = "#a0a0a0";
-                    device.UpdatedAt = DateTime.Now;
-                }
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
 
-                var rooms = await context.Rooms.ToListAsync();
-                foreach (var room in rooms)
-                {
-                    room.OnlineCount = 0;
-                }
+                // 重置所有设备为离线状态
+                var sql = @"UPDATE Devices 
+                   SET IsOn = 0, 
+                       StatusText = CASE 
+                           WHEN TypeIdentifier = 'camera' THEN StatusText
+                           ELSE '离线' 
+                       END,
+                       Detail = CASE 
+                           WHEN TypeIdentifier = 'camera' THEN '摄像头 · 离线'
+                           WHEN TypeIdentifier = 'temp-sensor' THEN '温度传感器 · 离线'
+                           WHEN TypeIdentifier = 'humidity-sensor' THEN '湿度传感器 · 离线'
+                           WHEN TypeIdentifier = 'ac' THEN '空调 · 离线'
+                           WHEN TypeIdentifier = 'lock' THEN '门锁 · 离线'
+                           WHEN TypeIdentifier = 'fan' THEN '风扇 · 离线'
+                           WHEN TypeIdentifier = 'motor' THEN '电机 · 离线'
+                           WHEN TypeIdentifier = 'light' THEN '灯光 · 离线'
+                           ELSE '设备 · 离线' 
+                       END,
+                       ProgressColor = '#a0a0a0',
+                       UpdatedAt = @now";
 
-                await context.SaveChangesAsync();
-                _logger.LogInformation("所有设备已重置为离线状态");
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                int rowsAffected = await cmd.ExecuteNonQueryAsync();
+                _logger.LogInformation($"已重置 {rowsAffected} 个设备为离线状态");
+
+                // 重置房间在线统计
+                var roomSql = "UPDATE Rooms SET OnlineCount = 0";
+                using var roomCmd = connection.CreateCommand();
+                roomCmd.CommandText = roomSql;
+                await roomCmd.ExecuteNonQueryAsync();
             }
             catch (Exception ex)
             {
@@ -785,53 +1357,68 @@ namespace SmartHomeDashboard.Services
             }
         }
 
-        // ==================== 统计方法 ====================
-
-        // 获取设备统计信息
-        public async Task<(int total, int online)> GetDeviceStatsAsync()
+        public async Task SyncDeviceStatusWithTcpConnections(Dictionary<string, bool> onlineStatus)
         {
             try
             {
-                using var context = await _dbContextFactory.CreateDbContextAsync();
-                var devices = await context.Devices.ToListAsync();
-                int total = devices.Count;
-                int online = devices.Count(d => d.IsOn && d.StatusText != "离线");
-                return (total, online);
+                var devices = await GetAllDevicesAsync();
+                int updatedCount = 0;
+
+                foreach (var device in devices)
+                {
+                    if (onlineStatus.TryGetValue(device.FullDeviceId, out bool isOnline))
+                    {
+                        if (isOnline && (device.StatusText == "离线" || !device.IsOn))
+                        {
+                            await UpdateDeviceStatusAsync(device.Id, true, "在线");
+                            updatedCount++;
+                        }
+                        else if (!isOnline && device.StatusText != "离线")
+                        {
+                            await UpdateDeviceStatusAsync(device.Id, false, "离线");
+                            updatedCount++;
+                        }
+                    }
+                }
+
+                if (updatedCount > 0)
+                {
+                    _logger.LogInformation($"设备状态同步完成，更新了 {updatedCount} 个设备");
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "获取设备统计失败");
-                return (0, 0);
+                _logger.LogError(ex, "同步设备状态失败");
             }
         }
 
-        // 获取房间设备统计
+        // ==================== 统计方法 ====================
+
+        public async Task<(int total, int online)> GetDeviceStatsAsync()
+        {
+            var devices = await GetAllDevicesAsync();
+            int total = devices.Count;
+            int online = devices.Count(d => d.IsOn && d.StatusText != "离线");
+            return (total, online);
+        }
+
         public async Task<Dictionary<string, (int total, int online)>> GetAllRoomsStatsAsync()
         {
-            try
-            {
-                using var context = await _dbContextFactory.CreateDbContextAsync();
-                var rooms = await context.Rooms.ToListAsync();
-                var devices = await context.Devices.ToListAsync();
+            using var context = await _dbContextFactory.CreateDbContextAsync();
+            var rooms = await context.Rooms.ToListAsync();
+            var devices = await GetAllDevicesAsync();
 
-                return rooms.ToDictionary(
-                    r => r.RoomId,
-                    r => (
-                        total: devices.Count(d => d.RoomIdentifier == r.RoomId),
-                        online: devices.Count(d => d.RoomIdentifier == r.RoomId && d.IsOn && d.StatusText != "离线")
-                    )
-                );
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "获取房间统计失败");
-                return new Dictionary<string, (int total, int online)>();
-            }
+            return rooms.ToDictionary(
+                r => r.RoomId,
+                r => (
+                    total: devices.Count(d => d.RoomIdentifier == r.RoomId),
+                    online: devices.Count(d => d.RoomIdentifier == r.RoomId && d.IsOn && d.StatusText != "离线")
+                )
+            );
         }
 
         // ==================== 辅助方法 ====================
 
-        // 解析功率值
         private double ParsePowerValue(string powerText)
         {
             if (string.IsNullOrEmpty(powerText)) return 0;
@@ -857,13 +1444,42 @@ namespace SmartHomeDashboard.Services
             return 0;
         }
 
-        // 生成完整设备ID
-        public string GenerateFullDeviceId(string roomId, string typeId, string deviceNumber)
+        private string GetTypeAbbr(string typeId)
         {
-            return $"{roomId}-{typeId}-{deviceNumber}";
+            return typeId switch
+            {
+                "fan" => "fan",
+                "humidity-sensor" => "hum",
+                "temp-sensor" => "temp",
+                "light" => "light",
+                "ac" => "ac",
+                "lock" => "lock",
+                "camera" => "cam",
+                "motor" => "motor",
+                _ => "dev"
+            };
         }
 
-        // 解析完整设备ID
+        private string GetRoomAbbr(string roomId)
+        {
+            return roomId switch
+            {
+                "living" => "liv",
+                "master-bedroom" => "mbd",
+                "second-bedroom" => "sbd",
+                "kitchen" => "kit",
+                "bathroom" => "bat",
+                "dining" => "din",
+                "entrance" => "ent",
+                _ => "unk"
+            };
+        }
+
+        public string GenerateFullDeviceId(string roomId, string typeId, string deviceNumber)
+        {
+            return $"{GetTypeAbbr(typeId)}-{GetRoomAbbr(roomId)}-{deviceNumber}";
+        }
+
         public (string roomId, string typeId, string deviceNumber) ParseFullDeviceId(string fullDeviceId)
         {
             var parts = fullDeviceId.Split('-');

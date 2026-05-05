@@ -36,7 +36,8 @@ namespace SmartHomeDashboard.Services
                 // 检查是否被锁定
                 if (loginSettings.LockUntil.HasValue && loginSettings.LockUntil > DateTime.Now)
                 {
-                    _logger.LogWarning($"账户已被锁定至 {loginSettings.LockUntil}");
+                    var minutesLeft = (int)(loginSettings.LockUntil.Value - DateTime.Now).TotalMinutes;
+                    _logger.LogWarning($"账户已被锁定，剩余 {minutesLeft} 分钟");
                     return false;
                 }
 
@@ -45,13 +46,14 @@ namespace SmartHomeDashboard.Services
 
                 if (isValid)
                 {
-                    // 登录成功，更新记录
+                    // 登录成功，重置失败计数和锁定状态
                     loginSettings.LastLoginTime = DateTime.Now;
                     loginSettings.LoginCount++;
                     loginSettings.FailCount = 0;  // 重置失败计数
+                    loginSettings.LockUntil = null;  // 解锁账户
                     loginSettings.UpdatedAt = DateTime.Now;
 
-                    _logger.LogInformation($"登录成功，总登录次数: {loginSettings.LoginCount}");
+                    _logger.LogInformation($"登录成功，总登录次数: {loginSettings.LoginCount}，失败计数已重置");
                 }
                 else
                 {
@@ -65,9 +67,12 @@ namespace SmartHomeDashboard.Services
                         loginSettings.LockUntil = DateTime.Now.AddMinutes(30);
                         _logger.LogWarning($"连续失败 {loginSettings.FailCount} 次，账户已锁定30分钟");
                     }
+                    else
+                    {
+                        _logger.LogWarning($"登录失败，失败次数: {loginSettings.FailCount}/5");
+                    }
 
                     loginSettings.UpdatedAt = DateTime.Now;
-                    _logger.LogWarning($"登录失败，失败次数: {loginSettings.FailCount}");
                 }
 
                 await context.SaveChangesAsync();
@@ -118,7 +123,7 @@ namespace SmartHomeDashboard.Services
             }
         }
 
-        // 获取登录状态
+        // 获取登录设置
         public async Task<LoginSettingsModel?> GetLoginSettingsAsync()
         {
             try
@@ -146,6 +151,7 @@ namespace SmartHomeDashboard.Services
                     loginSettings.LockUntil = null;
                     loginSettings.UpdatedAt = DateTime.Now;
                     await context.SaveChangesAsync();
+                    _logger.LogInformation("失败计数已重置");
                 }
             }
             catch (Exception ex)

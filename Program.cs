@@ -6,6 +6,8 @@ using SmartHomeDashboard.Services;
 using SmartHomeDashboard.Hubs;
 using SmartHomeDashboard.Middleware;
 using SmartHomeDashboard.Data;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,7 +23,7 @@ builder.Services.AddDbContextFactory<AppDbContext>(options =>
 {
     var dbPath = Path.Combine(dataDir, "smarthome.db");
     options.UseSqlite($"Data Source={dbPath}");
-    options.EnableSensitiveDataLogging(); // 开发环境可以启用
+    options.EnableSensitiveDataLogging();
 });
 
 // 添加 Session 服务
@@ -36,10 +38,21 @@ builder.Services.AddSession(options =>
 
 // 添加 Razor Pages 和 控制器
 builder.Services.AddRazorPages();
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+        options.JsonSerializerOptions.WriteIndented = true;
+        options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+    });
 
 // 添加 SignalR
-builder.Services.AddSignalR();
+builder.Services.AddSignalR()
+    .AddJsonProtocol(options =>
+    {
+        options.PayloadSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+        options.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+    });
 
 // 注册服务
 builder.Services.AddSingleton<DeviceDataService>();
@@ -50,6 +63,7 @@ builder.Services.AddSingleton<LoginService>();
 builder.Services.AddSingleton<SceneService>();
 builder.Services.AddSingleton<SystemLogService>();
 builder.Services.AddSingleton<TcpConnectionService>();
+builder.Services.AddSingleton<AIAssistantService>();
 
 // 注册后台服务
 try
@@ -73,6 +87,22 @@ using (var scope = app.Services.CreateScope())
     Console.WriteLine($"数据库路径: {context.DbPath}");
 }
 
+// ========== 启动时重置所有设备为离线状态 ==========
+using (var scope = app.Services.CreateScope())
+{
+    try
+    {
+        var deviceDataService = scope.ServiceProvider.GetRequiredService<DeviceDataService>();
+        await deviceDataService.ResetAllDevicesToOfflineAsync();
+        Console.WriteLine("已将所有设备重置为离线状态");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"重置设备状态失败: {ex.Message}");
+    }
+}
+// ================================================
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error");
@@ -92,40 +122,59 @@ app.MapControllers();
 // 健康检查端点
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", time = DateTime.Now }));
 
-// 数据库信息检查端点
-app.MapGet("/db-info", async (IDbContextFactory<AppDbContext> dbContextFactory) =>
+// TCP调试端点
+app.MapGet("/api/tcp/debug", async (TcpServerService tcpService, DeviceDataService deviceService) =>
 {
-    using var context = await dbContextFactory.CreateDbContextAsync();
-    var tables = new List<string>();
+    var tcpDevices = tcpService.GetAllDevices();
+    var dbDevices = deviceService.GetAllDevices();
 
-    using var command = context.Database.GetDbConnection().CreateCommand();
-    command.CommandText = "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;";
-    await context.Database.OpenConnectionAsync();
-
-    using var result = await command.ExecuteReaderAsync();
-    while (await result.ReadAsync())
+    var result = new
     {
-        tables.Add(result.GetString(0));
-    }
+        tcpConnectionCount = tcpDevices.Count,
+        tcpDevices = tcpDevices.Select(d => new
+        {
+            d.DeviceId,
+            d.DeviceName,
+            d.IpAddress,
+            d.LastSeen,
+            d.IsOnline
+        }),
+        dbDeviceCount = dbDevices.Count,
+        dbDevices = dbDevices.Select(d => new
+        {
+            d.Id,
+            d.FullDeviceId,
+            d.Name,
+            d.IsOn,
+            d.StatusText,
+            d.UpdatedAt
+        }),
+        inconsistency = tcpDevices.Select(t => t.DeviceId)
+            .Except(dbDevices.Where(d => d.IsOn && d.StatusText != "离线").Select(d => d.FullDeviceId))
+            .Concat(dbDevices.Where(d => d.IsOn && d.StatusText != "离线").Select(d => d.FullDeviceId)
+            .Except(tcpDevices.Select(t => t.DeviceId)))
+    };
 
-    var roomCount = await context.Rooms.CountAsync();
-    var deviceTypeCount = await context.DeviceTypes.CountAsync();
-    var deviceCount = await context.Devices.CountAsync();
-    var sceneCount = await context.Scenes.CountAsync();
-    var logCount = await context.SystemLogs.CountAsync();
-    var connectionCount = await context.TcpConnections.CountAsync();
+    return Results.Ok(result);
+});
 
+app.MapGet("/api/tcp/status", (TcpServerService tcpService) =>
+{
+    var devices = tcpService.GetAllDevices();
     return Results.Ok(new
     {
-        databasePath = context.DbPath,
-        databaseExists = File.Exists(context.DbPath),
-        tables = tables,
-        roomCount = roomCount,
-        deviceTypeCount = deviceTypeCount,
-        deviceCount = deviceCount,
-        sceneCount = sceneCount,
-        logCount = logCount,
-        connectionCount = connectionCount
+        success = true,
+        isRunning = true,
+        onlineDevices = devices.Count,
+        totalDevices = devices.Count,
+        devices = devices.Select(d => new
+        {
+            d.DeviceId,
+            d.DeviceName,
+            d.IpAddress,
+            d.LastSeen,
+            d.IsOnline
+        })
     });
 });
 

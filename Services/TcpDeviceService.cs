@@ -7,89 +7,95 @@ namespace SmartHomeDashboard.Services
         private readonly ILogger<TcpDeviceService> _logger;
         private readonly TcpServerService _tcpServerService;
         private readonly DeviceDataService _deviceDataService;
-        private readonly Dictionary<string, TcpDevice> _devices;
 
         public TcpDeviceService(ILogger<TcpDeviceService> logger, TcpServerService tcpServerService, DeviceDataService deviceDataService)
         {
             _logger = logger;
             _tcpServerService = tcpServerService;
             _deviceDataService = deviceDataService;
-            _devices = new Dictionary<string, TcpDevice>();
-
-            _tcpServerService.OnDeviceConnected += OnDeviceConnected;
-            _tcpServerService.OnDeviceDisconnected += OnDeviceDisconnected;
-            _tcpServerService.OnTelemetryReceived += OnTelemetryReceived;
         }
 
-        private void OnDeviceConnected(object? sender, TcpDevice device)
+        // 辅助方法：将设备ID转换为FullDeviceId
+        private async Task<string> GetFullDeviceIdAsync(string deviceId)
         {
-            _logger.LogInformation($"设备连接: {device.DeviceName} ({device.DeviceId})");
-            _devices[device.DeviceId] = device;
-        }
-
-        private void OnDeviceDisconnected(object? sender, TcpDevice device)
-        {
-            _logger.LogInformation($"设备断开: {device.DeviceName} ({device.DeviceId})");
-            if (_devices.ContainsKey(device.DeviceId))
+            // 如果已经是完整ID格式（包含-），直接返回
+            if (deviceId.Contains('-'))
             {
-                _devices[device.DeviceId].IsOnline = false;
-                _devices[device.DeviceId].LastSeen = DateTime.Now;
+                return deviceId;
             }
-        }
 
-        private void OnTelemetryReceived(object? sender, TelemetryData telemetry)
-        {
-            // 遥测数据已在TcpServerService中处理
+            // 尝试转换为数字ID
+            if (int.TryParse(deviceId, out int intDeviceId))
+            {
+                var device = await _deviceDataService.GetDeviceByIdAsync(intDeviceId);
+                if (device == null)
+                {
+                    throw new Exception($"设备不存在 (ID: {deviceId})");
+                }
+                _logger.LogInformation($"设备ID转换: {deviceId} -> {device.FullDeviceId}");
+                return device.FullDeviceId;
+            }
+
+            throw new Exception($"无效的设备ID格式: {deviceId}");
         }
 
         public async Task SendCommandAsync(string deviceId, string command, Dictionary<string, object>? parameters = null)
         {
-            await _tcpServerService.SendCommandAsync(deviceId, command, parameters);
+            var fullDeviceId = await GetFullDeviceIdAsync(deviceId);
+            await _tcpServerService.SendCommandAsync(fullDeviceId, command, parameters);
         }
 
         public async Task TurnOnAsync(string deviceId)
         {
-            await SendCommandAsync(deviceId, "turn_on");
+            var fullDeviceId = await GetFullDeviceIdAsync(deviceId);
+            await SendCommandAsync(fullDeviceId, "turn_on");
         }
 
         public async Task TurnOffAsync(string deviceId)
         {
-            await SendCommandAsync(deviceId, "turn_off");
+            var fullDeviceId = await GetFullDeviceIdAsync(deviceId);
+            await SendCommandAsync(fullDeviceId, "turn_off");
         }
 
         public async Task SetTemperatureAsync(string deviceId, double temperature)
         {
+            var fullDeviceId = await GetFullDeviceIdAsync(deviceId);
             var parameters = new Dictionary<string, object> { ["temperature"] = temperature };
-            await SendCommandAsync(deviceId, "set_temperature", parameters);
+            await SendCommandAsync(fullDeviceId, "set_temperature", parameters);
         }
 
         public async Task SetHumidityAsync(string deviceId, int humidity)
         {
+            var fullDeviceId = await GetFullDeviceIdAsync(deviceId);
             var parameters = new Dictionary<string, object> { ["humidity"] = humidity };
-            await SendCommandAsync(deviceId, "set_humidity", parameters);
+            await SendCommandAsync(fullDeviceId, "set_humidity", parameters);
         }
 
         public async Task SetBrightnessAsync(string deviceId, int brightness)
         {
+            var fullDeviceId = await GetFullDeviceIdAsync(deviceId);
             var parameters = new Dictionary<string, object> { ["brightness"] = brightness };
-            await SendCommandAsync(deviceId, "set_brightness", parameters);
+            await SendCommandAsync(fullDeviceId, "set_brightness", parameters);
         }
 
         public async Task SetMotorSpeedAsync(string deviceId, int speed)
         {
+            var fullDeviceId = await GetFullDeviceIdAsync(deviceId);
             var parameters = new Dictionary<string, object> { ["speed"] = speed };
-            await SendCommandAsync(deviceId, "set_speed", parameters);
+            await SendCommandAsync(fullDeviceId, "set_speed", parameters);
         }
 
         public async Task LockAsync(string deviceId)
         {
-            await SendCommandAsync(deviceId, "lock");
+            var fullDeviceId = await GetFullDeviceIdAsync(deviceId);
+            await SendCommandAsync(fullDeviceId, "lock");
         }
 
         public async Task UnlockAsync(string deviceId, string code)
         {
+            var fullDeviceId = await GetFullDeviceIdAsync(deviceId);
             var parameters = new Dictionary<string, object> { ["code"] = code };
-            await SendCommandAsync(deviceId, "unlock", parameters);
+            await SendCommandAsync(fullDeviceId, "unlock", parameters);
         }
 
         public TcpDevice? GetDevice(string deviceId)

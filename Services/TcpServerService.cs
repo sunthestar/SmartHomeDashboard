@@ -1,4 +1,4 @@
-Ôªøusing System.Net;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -7,6 +7,7 @@ using SmartHomeDashboard.Hubs;
 using SmartHomeDashboard.Models;
 using SmartHomeDashboard.Data;
 using Microsoft.EntityFrameworkCore;
+using System.Text.RegularExpressions;
 
 namespace SmartHomeDashboard.Services
 {
@@ -24,6 +25,7 @@ namespace SmartHomeDashboard.Services
         private Task? _serverTask;
         private CancellationTokenSource? _cancellationTokenSource;
         private Timer? _heartbeatCheckTimer;
+        private Timer? _syncTimer;
         private readonly int _heartbeatTimeoutSeconds = 90;
 
         public event EventHandler<TcpMessage>? OnMessageReceived;
@@ -54,13 +56,9 @@ namespace SmartHomeDashboard.Services
             RegisterDefaultHandlers();
         }
 
-        // ==================== ËÆæÂ§áIDÁîüÊàê ====================
-
-        private async Task<string> GenerateDeviceIdAsync(string deviceType, string room)
+        private string GetTypeAbbr(string typeId)
         {
-            using var context = await _dbContextFactory.CreateDbContextAsync();
-
-            var typeAbbr = deviceType.ToLower() switch
+            return typeId switch
             {
                 "fan" => "fan",
                 "humidity-sensor" => "hum",
@@ -72,8 +70,11 @@ namespace SmartHomeDashboard.Services
                 "motor" => "motor",
                 _ => "dev"
             };
+        }
 
-            var roomAbbr = room.ToLower() switch
+        private string GetRoomAbbr(string roomId)
+        {
+            return roomId switch
             {
                 "living" => "liv",
                 "master-bedroom" => "mbd",
@@ -82,101 +83,49 @@ namespace SmartHomeDashboard.Services
                 "bathroom" => "bat",
                 "dining" => "din",
                 "entrance" => "ent",
-                "discovered" => "disc",
                 _ => "unk"
             };
-
-            // ‰ªéÊï∞ÊçÆÂ∫ìËé∑ÂèñËØ•ÊàøÈó¥ËØ•Á±ªÂûãÁöÑÊúÄÂ§ßÁºñÂè∑
-            var existingDevices = await context.Devices
-                .Where(d => d.RoomIdentifier == room && d.TypeIdentifier == deviceType)
-                .ToListAsync();
-
-            int maxNumber = existingDevices
-                .Select(d => int.TryParse(d.DeviceNumber, out int num) ? num : 0)
-                .DefaultIfEmpty(0)
-                .Max();
-
-            int sequence = maxNumber + 1;
-            var sequenceStr = sequence.ToString("D3");
-
-            return $"{typeAbbr}-{roomAbbr}-{sequenceStr}";
         }
 
-        private (string type, string room, int sequence) ParseDeviceId(string deviceId)
+        private string GetIconForDeviceType(string typeId)
         {
-            try
+            return typeId switch
             {
-                var parts = deviceId.Split('-');
-                if (parts.Length == 3)
-                {
-                    var type = parts[0];
-                    var room = parts[1];
-                    var sequence = int.Parse(parts[2]);
-                    return (type, room, sequence);
-                }
-            }
-            catch { }
-
-            return ("unknown", "unknown", 0);
+                "light" => "fa-lightbulb",
+                "ac" => "fa-wind",
+                "lock" => "fa-door-open",
+                "camera" => "fa-camera",
+                "fan" => "fa-fan",
+                "temp-sensor" => "fa-thermometer-half",
+                "humidity-sensor" => "fa-tint",
+                "motor" => "fa-cogs",
+                _ => "fa-microchip"
+            };
         }
 
-        // ==================== Ê∂àÊÅØÈ™åËØÅ ====================
-
-        private bool ValidateRegisterMessage(RegisterMessage message, out string error)
+        private string GetDeviceTypeDisplay(string typeId)
         {
-            error = "";
-
-            if (message.DeviceInfo == null)
+            return typeId switch
             {
-                error = "deviceInfo ‰∏çËÉΩ‰∏∫Á©∫";
-                return false;
-            }
-
-            _logger.LogInformation($"È™åËØÅËÆæÂ§á‰ø°ÊÅØ: Name='{message.DeviceInfo.Name}', Type='{message.DeviceInfo.Type}', Room='{message.DeviceInfo.Room}'");
-
-            if (string.IsNullOrEmpty(message.DeviceInfo.Name))
-            {
-                error = "ËÆæÂ§áÂêçÁß∞‰∏çËÉΩ‰∏∫Á©∫";
-                _logger.LogError($"ËÆæÂ§áÂêçÁß∞‰∏∫Á©∫ÔºåÂÆåÊï¥ deviceInfo: {JsonSerializer.Serialize(message.DeviceInfo)}");
-                return false;
-            }
-
-            if (string.IsNullOrEmpty(message.DeviceInfo.Type))
-            {
-                error = "ËÆæÂ§áÁ±ªÂûã‰∏çËÉΩ‰∏∫Á©∫";
-                return false;
-            }
-
-            if (string.IsNullOrEmpty(message.DeviceInfo.Room))
-            {
-                error = "ÊàøÈó¥‰ø°ÊÅØ‰∏çËÉΩ‰∏∫Á©∫";
-                return false;
-            }
-
-            if (string.IsNullOrEmpty(message.MacAddress))
-            {
-                error = "MACÂú∞ÂùÄ‰∏çËÉΩ‰∏∫Á©∫";
-                return false;
-            }
-
-            var macRegex = new System.Text.RegularExpressions.Regex("^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$");
-            if (!macRegex.IsMatch(message.MacAddress))
-            {
-                error = "MACÂú∞ÂùÄÊ†ºÂºèÊó†Êïà";
-                return false;
-            }
-
-            return true;
+                "light" => "µ∆π‚",
+                "ac" => "ø’µ˜",
+                "lock" => "√≈À¯",
+                "camera" => "…„œÒÕ∑",
+                "fan" => "∑Á…»",
+                "temp-sensor" => "Œ¬∂»¥´∏–∆˜",
+                "humidity-sensor" => " ™∂»¥´∏–∆˜",
+                "motor" => "µÁª˙",
+                _ => "…Ë±∏"
+            };
         }
-
-        // ==================== ÊúçÂä°ÁîüÂëΩÂë®Êúü ====================
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
             _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _serverTask = Task.Run(() => RunServerAsync(_cancellationTokenSource.Token), _cancellationTokenSource.Token);
 
-            _heartbeatCheckTimer = new Timer(CheckHeartbeats, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+            _heartbeatCheckTimer = new Timer(CheckHeartbeats, null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
+            _syncTimer = new Timer(async _ => await SyncDeviceStatus(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
 
             return Task.CompletedTask;
         }
@@ -188,6 +137,8 @@ namespace SmartHomeDashboard.Services
 
             _heartbeatCheckTimer?.Change(Timeout.Infinite, 0);
             _heartbeatCheckTimer?.Dispose();
+            _syncTimer?.Change(Timeout.Infinite, 0);
+            _syncTimer?.Dispose();
 
             try
             {
@@ -198,7 +149,7 @@ namespace SmartHomeDashboard.Services
             }
             catch (TimeoutException)
             {
-                _logger.LogWarning("TCPÊúçÂä°Âô®ÂÅúÊ≠¢Ë∂ÖÊó∂");
+                _logger.LogWarning("TCP∑˛ŒÒ∆˜Õ£÷π≥¨ ±");
             }
 
             _tcpListener?.Stop();
@@ -224,16 +175,19 @@ namespace SmartHomeDashboard.Services
                 _isRunning = true;
 
                 _logger.LogInformation($"========================================");
-                _logger.LogInformation($"TCPÊúçÂä°Âô®ÂêØÂä®ÊàêÂäüÔºåÁõëÂê¨Á´ØÂè£: {port}");
-                _logger.LogInformation($"ÂøÉË∑≥Ë∂ÖÊó∂Êó∂Èó¥: {_heartbeatTimeoutSeconds}Áßí");
-                _logger.LogInformation($"ÊúçÂä°Âô®Êó∂Èó¥: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+                _logger.LogInformation($"TCP∑˛ŒÒ∆˜∆Ù∂Ø≥…π¶£¨º‡Ã˝∂Àø⁄: {port}");
+                _logger.LogInformation($"–ƒÃ¯≥¨ ± ±º‰: {_heartbeatTimeoutSeconds}√Î");
+                _logger.LogInformation($"∑˛ŒÒ∆˜ ±º‰: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
                 _logger.LogInformation($"========================================");
 
                 while (!cancellationToken.IsCancellationRequested && _isRunning)
                 {
                     try
                     {
+                        _logger.LogInformation("µ»¥˝øÕªß∂À¡¨Ω”...");
                         var client = await _tcpListener.AcceptTcpClientAsync(cancellationToken);
+                        var endpoint = client.Client.RemoteEndPoint as IPEndPoint;
+                        _logger.LogInformation($"?  ’µΩ–¬¡¨Ω”£°øÕªß∂À: {endpoint?.Address}:{endpoint?.Port}");
                         _ = Task.Run(() => HandleClientAsync(client), cancellationToken);
                     }
                     catch (OperationCanceledException)
@@ -242,22 +196,1935 @@ namespace SmartHomeDashboard.Services
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Êé•ÂèóÂÆ¢Êà∑Á´ØËøûÊé•Â§±Ë¥•");
+                        _logger.LogError(ex, "Ω” ‹øÕªß∂À¡¨Ω” ß∞‹");
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "TCPÊúçÂä°Âô®ÂêØÂä®Â§±Ë¥•");
+                _logger.LogError(ex, "TCP∑˛ŒÒ∆˜∆Ù∂Ø ß∞‹");
             }
             finally
             {
                 _tcpListener?.Stop();
-                _logger.LogInformation("TCPÊúçÂä°Âô®Â∑≤ÂÅúÊ≠¢");
+                _logger.LogInformation("TCP∑˛ŒÒ∆˜“—Õ£÷π");
             }
         }
 
-        // ==================== ÂøÉË∑≥Ê£ÄÊü• ====================
+        private async Task HandleClientAsync(TcpClient client)
+        {
+            var endpoint = client.Client.RemoteEndPoint as IPEndPoint;
+            var ipAddress = endpoint?.Address.ToString() ?? "Œ¥÷™";
+            var port = endpoint?.Port ?? 0;
+            int messageCount = 0;
+            string? deviceId = null;
+
+            _logger.LogInformation($"");
+            _logger.LogInformation($"========== –¬øÕªß∂À¡¨Ω” ==========");
+            _logger.LogInformation($"IPµÿ÷∑: {ipAddress}:{port}");
+            _logger.LogInformation($"¡¨Ω” ±º‰: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            _logger.LogInformation($"==================================");
+
+            var clientInfo = new TcpClientInfo
+            {
+                Client = client,
+                Stream = client.GetStream(),
+                IpAddress = ipAddress,
+                Port = port,
+                ConnectedTime = DateTime.Now,
+                LastHeartbeat = DateTime.Now,
+                LastSeen = DateTime.Now
+            };
+
+            string tempKey = $"temp_{ipAddress}_{port}_{DateTime.Now.Ticks}";
+            lock (_connectedClients)
+            {
+                _connectedClients[tempKey] = clientInfo;
+                _logger.LogInformation($"¡Ÿ ±¡¨Ω”“—ÃÌº”: {tempKey}");
+            }
+
+            try
+            {
+                using var reader = new StreamReader(clientInfo.Stream, Encoding.UTF8);
+                var buffer = new char[4096];
+                var messageBuffer = new StringBuilder();
+
+                while (_isRunning && client.Connected)
+                {
+                    var bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length);
+                    if (bytesRead == 0) break;
+
+                    messageBuffer.Append(buffer, 0, bytesRead);
+                    var messages = messageBuffer.ToString().Split('\n');
+
+                    for (int i = 0; i < messages.Length - 1; i++)
+                    {
+                        var messageStr = messages[i].Trim();
+                        if (!string.IsNullOrEmpty(messageStr))
+                        {
+                            messageCount++;
+                            await ProcessMessageAsync(messageStr, clientInfo, messageCount);
+
+                            clientInfo.LastHeartbeat = DateTime.Now;
+                            clientInfo.LastSeen = DateTime.Now;
+
+                            if (deviceId == null)
+                            {
+                                try
+                                {
+                                    var msg = JsonSerializer.Deserialize<JsonDocument>(messageStr);
+                                    if (msg.RootElement.TryGetProperty("deviceId", out var devIdElement))
+                                    {
+                                        var newDeviceId = devIdElement.GetString();
+                                        if (!string.IsNullOrEmpty(newDeviceId) && newDeviceId != "")
+                                        {
+                                            deviceId = newDeviceId;
+                                            lock (_connectedClients)
+                                            {
+                                                if (_connectedClients.ContainsKey(tempKey))
+                                                {
+                                                    var info = _connectedClients[tempKey];
+                                                    _connectedClients.Remove(tempKey);
+                                                    info.DeviceId = deviceId;
+                                                    _connectedClients[deviceId] = info;
+                                                    _logger.LogInformation($"? …Ë±∏ID“—¥”œ˚œ¢÷–ªÒ»°≤¢∏¸–¬: {deviceId}");
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                catch { }
+                            }
+                        }
+                    }
+
+                    messageBuffer.Clear();
+                    messageBuffer.Append(messages.Last());
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "øÕªß∂À¡¨Ω”¥¶¿Ì“Ï≥££®’˝≥£∂œø™£©");
+            }
+            finally
+            {
+                string disconnectedDeviceId = deviceId ?? "";
+
+                lock (_connectedClients)
+                {
+                    if (deviceId != null && _connectedClients.ContainsKey(deviceId))
+                    {
+                        _connectedClients.Remove(deviceId);
+                    }
+                    if (_connectedClients.ContainsKey(tempKey))
+                    {
+                        _connectedClients.Remove(tempKey);
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(disconnectedDeviceId) && disconnectedDeviceId != "temp" && !disconnectedDeviceId.StartsWith("temp_"))
+                {
+                    await SetDeviceOfflineInDatabase(disconnectedDeviceId);
+                }
+
+                _logger.LogInformation($"");
+                _logger.LogInformation($"========== øÕªß∂À∂œø™¡¨Ω” ==========");
+                _logger.LogInformation($"IPµÿ÷∑: {ipAddress}:{port}");
+                _logger.LogInformation($"…Ë±∏ID: {disconnectedDeviceId ?? "Œ¥÷™"}");
+                _logger.LogInformation($"∂œø™ ±º‰: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+                _logger.LogInformation($"◊‹º∆Ω” ’œ˚œ¢: {messageCount} Ãı");
+                _logger.LogInformation($"====================================");
+
+                try
+                {
+                    client.Close();
+                }
+                catch { }
+            }
+        }
+
+        private async Task ProcessMessageAsync(string messageStr, TcpClientInfo clientInfo, int messageCount)
+        {
+            _logger.LogInformation($"");
+            _logger.LogInformation($"-----  ’µΩµ⁄ {messageCount} Ãıœ˚œ¢ -----");
+            _logger.LogInformation($" ±º‰: {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}");
+            _logger.LogInformation($"¿¥‘¥: {clientInfo.IpAddress}:{clientInfo.Port}");
+            _logger.LogInformation($"‘≠ º ˝æ›: {messageStr}");
+            _logger.LogInformation($"----------------------------------------");
+
+            try
+            {
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                };
+
+                var message = JsonSerializer.Deserialize<TcpMessage>(messageStr, options);
+
+                if (message != null)
+                {
+                    _logger.LogInformation($"Ω‚ŒˆΩ·π˚: ¿‡–Õ={message.Type}, …Ë±∏ID={message.DeviceId}");
+
+                    message.Timestamp = DateTime.UtcNow;
+                    OnMessageReceived?.Invoke(this, message);
+
+                    await ProcessMessageByTypeAsync(message, clientInfo);
+                }
+                else
+                {
+                    _logger.LogWarning($"œ˚œ¢Ω‚Œˆ ß∞‹: ∑µªÿnull");
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError($"JSONΩ‚Œˆ¥ÌŒÛ: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"¥¶¿Ìœ˚œ¢ ±∑¢…˙Œ¥÷™¥ÌŒÛ: {ex.Message}");
+            }
+
+            _logger.LogInformation($"----- œ˚œ¢¥¶¿ÌÕÍ≥… -----");
+            _logger.LogInformation($"");
+        }
+
+        private async Task ProcessMessageByTypeAsync(TcpMessage message, TcpClientInfo clientInfo)
+        {
+            foreach (var handler in _messageHandlers)
+            {
+                if (handler.Key == message.Type)
+                {
+                    try
+                    {
+                        await handler.Value(message);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, $"÷¥––œ˚œ¢¥¶¿Ì∆˜ ß∞‹: {handler.Key}");
+                    }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(message.DeviceId))
+            {
+                lock (_connectedClients)
+                {
+                    if (_connectedClients.ContainsKey(message.DeviceId))
+                    {
+                        _connectedClients[message.DeviceId].LastSeen = DateTime.Now;
+                        _connectedClients[message.DeviceId].LastHeartbeat = DateTime.Now;
+                    }
+                }
+            }
+        }
+
+        private void RegisterDefaultHandlers()
+        {
+            _messageHandlers["register"] = async (message) =>
+            {
+                _logger.LogInformation("÷¥––◊¢≤·¥¶¿Ì∆˜");
+                await HandleRegisterAsync(message);
+            };
+
+            _messageHandlers["heartbeat"] = async (message) =>
+            {
+                _logger.LogDebug("÷¥–––ƒÃ¯¥¶¿Ì∆˜");
+                await HandleHeartbeatAsync(message);
+            };
+
+            _messageHandlers["status"] = async (message) =>
+            {
+                _logger.LogDebug("÷¥––◊¥Ã¨¥¶¿Ì∆˜");
+                await HandleStatusAsync(message);
+            };
+
+            _messageHandlers["telemetry"] = async (message) =>
+            {
+                _logger.LogDebug("÷¥––“£≤‚ ˝æ›¥¶¿Ì∆˜");
+                await HandleTelemetryAsync(message);
+            };
+
+            _messageHandlers["command_response"] = async (message) =>
+            {
+                _logger.LogDebug("÷¥––√¸¡ÓœÏ”¶¥¶¿Ì∆˜");
+                await HandleCommandResponseAsync(message);
+            };
+
+            _messageHandlers["event"] = async (message) =>
+            {
+                _logger.LogDebug("÷¥–– ¬º˛¥¶¿Ì∆˜");
+                await HandleEventAsync(message);
+            };
+
+            _messageHandlers["disconnect"] = async (message) =>
+            {
+                _logger.LogInformation("÷¥––∂œø™¡¨Ω”¥¶¿Ì∆˜");
+                await HandleDisconnectAsync(message);
+            };
+        }
+
+        // ==================== ADO.NET ∏®÷˙∑Ω∑® ====================
+
+        private DeviceModel MapToDeviceModel(System.Data.Common.DbDataReader reader)
+        {
+            return new DeviceModel
+            {
+                Id = reader.GetInt32(0),
+                Name = reader.IsDBNull(1) ? "" : reader.GetString(1),
+                DeviceNumber = reader.IsDBNull(2) ? "000" : reader.GetString(2),
+                FullDeviceId = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                RoomId = reader.GetInt32(4),
+                DeviceTypeId = reader.GetInt32(5),
+                RoomIdentifier = reader.IsDBNull(6) ? "unknown" : reader.GetString(6),
+                TypeIdentifier = reader.IsDBNull(7) ? "unknown" : reader.GetString(7),
+                Icon = reader.IsDBNull(8) ? "fa-microchip" : reader.GetString(8),
+                IsOn = reader.GetInt32(9) == 1,
+                StatusText = reader.IsDBNull(10) ? "¿Îœﬂ" : reader.GetString(10),
+                Detail = reader.IsDBNull(11) ? "µ»¥˝¡¨Ω”" : reader.GetString(11),
+                Progress = reader.GetInt32(12),
+                ProgressColor = reader.IsDBNull(13) ? null : reader.GetString(13),
+                Temperature = reader.IsDBNull(14) ? null : reader.GetDouble(14),
+                Humidity = reader.IsDBNull(15) ? null : reader.GetInt32(15),
+                MotorSpeed = reader.IsDBNull(16) ? null : reader.GetInt32(16),
+                Mode = reader.IsDBNull(17) ? null : reader.GetString(17),
+                SwingVertical = reader.IsDBNull(18) ? null : reader.GetBoolean(18),
+                SwingHorizontal = reader.IsDBNull(19) ? null : reader.GetBoolean(19),
+                Light = reader.IsDBNull(20) ? null : reader.GetBoolean(20),
+                Quiet = reader.IsDBNull(21) ? null : reader.GetBoolean(21),
+                Direction = reader.IsDBNull(22) ? null : reader.GetString(22),
+                CreatedAt = reader.GetDateTime(23),
+                UpdatedAt = reader.IsDBNull(24) ? null : reader.GetDateTime(24),
+                TemperatureValue = reader.IsDBNull(25) ? null : reader.GetDouble(25),
+                HumidityValue = reader.IsDBNull(26) ? null : reader.GetDouble(26),
+                BatteryLevel = reader.IsDBNull(27) ? null : reader.GetInt32(27),
+                Brightness = reader.IsDBNull(28) ? null : reader.GetInt32(28),
+                ColorTemperature = reader.IsDBNull(29) ? null : reader.GetInt32(29),
+                AcTemperature = reader.IsDBNull(30) ? null : reader.GetInt32(30),
+                AcMode = reader.IsDBNull(31) ? null : reader.GetString(31),
+                AcFanSpeed = reader.IsDBNull(32) ? null : reader.GetString(32),
+                AcSwingVertical = reader.IsDBNull(33) ? null : reader.GetBoolean(33),
+                AcSwingHorizontal = reader.IsDBNull(34) ? null : reader.GetBoolean(34),
+                AcLight = reader.IsDBNull(35) ? null : reader.GetBoolean(35),
+                AcQuiet = reader.IsDBNull(36) ? null : reader.GetBoolean(36),
+                FanSpeed = reader.IsDBNull(37) ? null : reader.GetInt32(37),
+                FanSwing = reader.IsDBNull(38) ? null : reader.GetBoolean(38),
+                MotorDirection = reader.IsDBNull(39) ? null : reader.GetString(39),
+                LastUnlockTime = reader.IsDBNull(40) ? null : reader.GetDateTime(40),
+                UnlockMethod = reader.IsDBNull(41) ? null : reader.GetString(41),
+                IsRecording = reader.IsDBNull(42) ? null : reader.GetBoolean(42),
+                MotionDetected = reader.IsDBNull(43) ? null : reader.GetBoolean(43),
+                NightMode = reader.IsDBNull(44) ? null : reader.GetString(44),
+                Power = reader.IsDBNull(45) ? "0W" : reader.GetString(45),
+                PowerValue = reader.GetDouble(46)
+            };
+        }
+
+        private async Task<DeviceModel?> GetDeviceByFullIdRawAsync(string fullDeviceId)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"
+                    SELECT 
+                        Id, Name, DeviceNumber, FullDeviceId, RoomId, DeviceTypeId,
+                        RoomIdentifier, TypeIdentifier, Icon, IsOn, StatusText, Detail,
+                        Progress, ProgressColor, Temperature, Humidity, MotorSpeed,
+                        Mode, SwingVertical, SwingHorizontal, Light, Quiet, Direction,
+                        CreatedAt, UpdatedAt, TemperatureValue, HumidityValue, BatteryLevel,
+                        Brightness, ColorTemperature, AcTemperature, AcMode, AcFanSpeed,
+                        AcSwingVertical, AcSwingHorizontal, AcLight, AcQuiet, FanSpeed, FanSwing,
+                        MotorDirection, LastUnlockTime, UnlockMethod, IsRecording, MotionDetected, NightMode,
+                        Power, PowerValue
+                    FROM Devices 
+                    WHERE FullDeviceId = @fullDeviceId
+                    LIMIT 1";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@fullDeviceId";
+                idParam.Value = fullDeviceId;
+                cmd.Parameters.Add(idParam);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    return MapToDeviceModel(reader);
+                }
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"ªÒ»°…Ë±∏ ß∞‹ FullDeviceId: {fullDeviceId}");
+                return null;
+            }
+        }
+
+        private async Task<DeviceModel?> GetDeviceByNameAndRoomRawAsync(string name, string roomId)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"
+                    SELECT 
+                        Id, Name, DeviceNumber, FullDeviceId, RoomId, DeviceTypeId,
+                        RoomIdentifier, TypeIdentifier, Icon, IsOn, StatusText, Detail,
+                        Progress, ProgressColor, Temperature, Humidity, MotorSpeed,
+                        Mode, SwingVertical, SwingHorizontal, Light, Quiet, Direction,
+                        CreatedAt, UpdatedAt, TemperatureValue, HumidityValue, BatteryLevel,
+                        Brightness, ColorTemperature, AcTemperature, AcMode, AcFanSpeed,
+                        AcSwingVertical, AcSwingHorizontal, AcLight, AcQuiet, FanSpeed, FanSwing,
+                        MotorDirection, LastUnlockTime, UnlockMethod, IsRecording, MotionDetected, NightMode,
+                        Power, PowerValue
+                    FROM Devices 
+                    WHERE Name = @name AND RoomIdentifier = @roomId
+                    LIMIT 1";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var nameParam = cmd.CreateParameter();
+                nameParam.ParameterName = "@name";
+                nameParam.Value = name;
+                cmd.Parameters.Add(nameParam);
+
+                var roomParam = cmd.CreateParameter();
+                roomParam.ParameterName = "@roomId";
+                roomParam.Value = roomId;
+                cmd.Parameters.Add(roomParam);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    return MapToDeviceModel(reader);
+                }
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"≤È—Ø…Ë±∏ ß∞‹: Name={name}, Room={roomId}");
+                return null;
+            }
+        }
+
+        private async Task<List<DeviceModel>> GetAllDevicesRawAsync()
+        {
+            var devices = new List<DeviceModel>();
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"
+                    SELECT 
+                        Id, Name, DeviceNumber, FullDeviceId, RoomId, DeviceTypeId,
+                        RoomIdentifier, TypeIdentifier, Icon, IsOn, StatusText, Detail,
+                        Progress, ProgressColor, Temperature, Humidity, MotorSpeed,
+                        Mode, SwingVertical, SwingHorizontal, Light, Quiet, Direction,
+                        CreatedAt, UpdatedAt, TemperatureValue, HumidityValue, BatteryLevel,
+                        Brightness, ColorTemperature, AcTemperature, AcMode, AcFanSpeed,
+                        AcSwingVertical, AcSwingHorizontal, AcLight, AcQuiet, FanSpeed, FanSwing,
+                        MotorDirection, LastUnlockTime, UnlockMethod, IsRecording, MotionDetected, NightMode,
+                        Power, PowerValue
+                    FROM Devices";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    devices.Add(MapToDeviceModel(reader));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ªÒ»°À˘”–…Ë±∏ ß∞‹");
+            }
+            return devices;
+        }
+
+        private async Task SetDeviceOfflineInDatabase(string fullDeviceId)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"UPDATE Devices 
+                           SET IsOn = 0, 
+                               StatusText = CASE 
+                                   WHEN TypeIdentifier = 'camera' THEN StatusText 
+                                   ELSE '¿Îœﬂ' 
+                               END,
+                               Detail = CASE 
+                                   WHEN TypeIdentifier = 'camera' THEN '…„œÒÕ∑ °§ ¿Îœﬂ'
+                                   WHEN TypeIdentifier = 'temp-sensor' THEN 'Œ¬∂»¥´∏–∆˜ °§ ¿Îœﬂ'
+                                   WHEN TypeIdentifier = 'humidity-sensor' THEN ' ™∂»¥´∏–∆˜ °§ ¿Îœﬂ'
+                                   WHEN TypeIdentifier = 'ac' THEN 'ø’µ˜ °§ ¿Îœﬂ'
+                                   WHEN TypeIdentifier = 'lock' THEN '√≈À¯ °§ ¿Îœﬂ'
+                                   WHEN TypeIdentifier = 'fan' THEN '∑Á…» °§ ¿Îœﬂ'
+                                   WHEN TypeIdentifier = 'motor' THEN 'µÁª˙ °§ ¿Îœﬂ'
+                                   WHEN TypeIdentifier = 'light' THEN 'µ∆π‚ °§ ¿Îœﬂ'
+                                   ELSE '…Ë±∏ °§ ¿Îœﬂ' END,
+                               ProgressColor = '#a0a0a0',
+                               UpdatedAt = @now
+                           WHERE FullDeviceId = @fullDeviceId";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@fullDeviceId";
+                idParam.Value = fullDeviceId;
+                cmd.Parameters.Add(idParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                _logger.LogInformation($"…Ë±∏ {fullDeviceId} “—±Íº«Œ™¿Îœﬂ");
+
+                var updatedDevices = await GetAllDevicesRawAsync();
+                await SendDevicesUpdateToClients(updatedDevices);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"…Ë÷√…Ë±∏¿Îœﬂ ß∞‹: {fullDeviceId}");
+            }
+        }
+
+        // ==================== …Ë±∏◊¥Ã¨∏¸–¬∏®÷˙∑Ω∑® ====================
+
+        private async Task UpdateDeviceStatusText(int deviceId, string statusText)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = "UPDATE Devices SET StatusText = @statusText, UpdatedAt = @now WHERE Id = @deviceId";
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var statusParam = cmd.CreateParameter();
+                statusParam.ParameterName = "@statusText";
+                statusParam.Value = statusText;
+                cmd.Parameters.Add(statusParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"∏¸–¬…Ë±∏◊¥Ã¨Œƒ±æ ß∞‹ ID: {deviceId}");
+            }
+        }
+
+        private async Task UpdateDeviceBatteryLevel(int deviceId, int batteryLevel)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = "UPDATE Devices SET BatteryLevel = @batteryLevel, Humidity = @batteryLevel, UpdatedAt = @now WHERE Id = @deviceId";
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var batteryParam = cmd.CreateParameter();
+                batteryParam.ParameterName = "@batteryLevel";
+                batteryParam.Value = batteryLevel;
+                cmd.Parameters.Add(batteryParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"∏¸–¬…Ë±∏µÁ¡ø ß∞‹ ID: {deviceId}");
+            }
+        }
+
+        private async Task UpdateDeviceCameraOnlineStatus(int deviceId, bool isOnline)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                // ÷ª∏¸–¬ Detail ∫Õ ProgressColor£¨≤ª∏¸–¬ StatusText ∫Õ IsOn
+                var sql = @"UPDATE Devices 
+                           SET Detail = CASE 
+                                   WHEN @isOnline = 1 THEN '…„œÒÕ∑ °§ ‘⁄œﬂ'
+                                   ELSE '…„œÒÕ∑ °§ ¿Îœﬂ'
+                               END,
+                               ProgressColor = CASE WHEN @isOnline = 1 THEN '#4caf50' ELSE '#a0a0a0' END,
+                               UpdatedAt = @now
+                           WHERE Id = @deviceId AND TypeIdentifier = 'camera'";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var isOnlineParam = cmd.CreateParameter();
+                isOnlineParam.ParameterName = "@isOnline";
+                isOnlineParam.Value = isOnline ? 1 : 0;
+                cmd.Parameters.Add(isOnlineParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                _logger.LogInformation($"…„œÒÕ∑‘⁄œﬂ◊¥Ã¨“—∏¸–¬: DeviceId={deviceId}, IsOnline={isOnline}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"∏¸–¬…„œÒÕ∑‘⁄œﬂ◊¥Ã¨ ß∞‹ ID: {deviceId}");
+            }
+        }
+
+        private async Task UpdateDeviceCameraPowerStatus(int deviceId, bool isOn)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                // ÷ª∏¸–¬ø™πÿ◊¥Ã¨£®StatusText ∫Õ IsOn£©£¨≤ª”∞œÏ‘⁄œﬂ◊¥Ã¨
+                var sql = @"UPDATE Devices 
+                           SET StatusText = CASE WHEN @isOn = 1 THEN 'ø™∆Ù' ELSE 'πÿ±’' END,
+                               IsOn = @isOn,
+                               UpdatedAt = @now
+                           WHERE Id = @deviceId AND TypeIdentifier = 'camera'";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var isOnParam = cmd.CreateParameter();
+                isOnParam.ParameterName = "@isOn";
+                isOnParam.Value = isOn ? 1 : 0;
+                cmd.Parameters.Add(isOnParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                _logger.LogInformation($"…„œÒÕ∑ø™πÿ◊¥Ã¨“—∏¸–¬: DeviceId={deviceId}, IsOn={isOn}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"∏¸–¬…„œÒÕ∑ø™πÿ◊¥Ã¨ ß∞‹ ID: {deviceId}");
+            }
+        }
+
+        private async Task UpdateDevicePowerStatus(int deviceId, bool isOn)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"UPDATE Devices 
+                           SET IsOn = @isOn, 
+                               StatusText = CASE WHEN @isOn = 1 THEN 'ø™∆Ù' ELSE 'πÿ±’' END,
+                               UpdatedAt = @now 
+                           WHERE Id = @deviceId";
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var isOnParam = cmd.CreateParameter();
+                isOnParam.ParameterName = "@isOn";
+                isOnParam.Value = isOn ? 1 : 0;
+                cmd.Parameters.Add(isOnParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"∏¸–¬…Ë±∏µÁ‘¥◊¥Ã¨ ß∞‹ ID: {deviceId}");
+            }
+        }
+
+        private async Task UpdateDeviceAcMode(int deviceId, string mode)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = "UPDATE Devices SET AcMode = @mode, Mode = @mode, UpdatedAt = @now WHERE Id = @deviceId";
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var modeParam = cmd.CreateParameter();
+                modeParam.ParameterName = "@mode";
+                modeParam.Value = mode;
+                cmd.Parameters.Add(modeParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"∏¸–¬ø’µ˜ƒ£ Ω ß∞‹ ID: {deviceId}");
+            }
+        }
+
+        private async Task UpdateDeviceAcTemperature(int deviceId, int temperature)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = "UPDATE Devices SET AcTemperature = @temp, Temperature = @temp, UpdatedAt = @now WHERE Id = @deviceId";
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var tempParam = cmd.CreateParameter();
+                tempParam.ParameterName = "@temp";
+                tempParam.Value = temperature;
+                cmd.Parameters.Add(tempParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"∏¸–¬ø’µ˜Œ¬∂» ß∞‹ ID: {deviceId}");
+            }
+        }
+
+        private async Task UpdateDeviceFanSpeed(int deviceId, int speed)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = "UPDATE Devices SET FanSpeed = @speed, MotorSpeed = @speed, UpdatedAt = @now WHERE Id = @deviceId";
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var speedParam = cmd.CreateParameter();
+                speedParam.ParameterName = "@speed";
+                speedParam.Value = speed;
+                cmd.Parameters.Add(speedParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"∏¸–¬∑Á…»◊™ÀŸ ß∞‹ ID: {deviceId}");
+            }
+        }
+
+        private async Task UpdateDeviceMotorDirection(int deviceId, string direction)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = "UPDATE Devices SET MotorDirection = @direction, Direction = @direction, UpdatedAt = @now WHERE Id = @deviceId";
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var dirParam = cmd.CreateParameter();
+                dirParam.ParameterName = "@direction";
+                dirParam.Value = direction;
+                cmd.Parameters.Add(dirParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"∏¸–¬µÁª˙∑ΩœÚ ß∞‹ ID: {deviceId}");
+            }
+        }
+
+        private async Task UpdateDeviceTemperature(int deviceId, double temperature)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"UPDATE Devices 
+                           SET TemperatureValue = @temperature,
+                               Temperature = @temperature,
+                               UpdatedAt = @now
+                           WHERE Id = @deviceId";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var tempParam = cmd.CreateParameter();
+                tempParam.ParameterName = "@temperature";
+                tempParam.Value = temperature;
+                cmd.Parameters.Add(tempParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"∏¸–¬…Ë±∏Œ¬∂» ß∞‹ ID: {deviceId}");
+            }
+        }
+
+        private async Task UpdateDeviceHumidity(int deviceId, double humidity)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"UPDATE Devices 
+                           SET HumidityValue = @humidity,
+                               Temperature = @humidity,
+                               UpdatedAt = @now
+                           WHERE Id = @deviceId";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var humParam = cmd.CreateParameter();
+                humParam.ParameterName = "@humidity";
+                humParam.Value = humidity;
+                cmd.Parameters.Add(humParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"∏¸–¬…Ë±∏ ™∂» ß∞‹ ID: {deviceId}");
+            }
+        }
+
+        private async Task UpdateDeviceMotionDetected(int deviceId, bool motionDetected)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = "UPDATE Devices SET MotionDetected = @motionDetected, UpdatedAt = @now WHERE Id = @deviceId";
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var motionParam = cmd.CreateParameter();
+                motionParam.ParameterName = "@motionDetected";
+                motionParam.Value = motionDetected ? 1 : 0;
+                cmd.Parameters.Add(motionParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"∏¸–¬…Ë±∏‘À∂Ø’Ï≤‚ ß∞‹ ID: {deviceId}");
+            }
+        }
+
+        private async Task UpdateDeviceIsRecording(int deviceId, bool isRecording)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = "UPDATE Devices SET IsRecording = @isRecording, UpdatedAt = @now WHERE Id = @deviceId";
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var recordingParam = cmd.CreateParameter();
+                recordingParam.ParameterName = "@isRecording";
+                recordingParam.Value = isRecording ? 1 : 0;
+                cmd.Parameters.Add(recordingParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"∏¸–¬…Ë±∏¬º÷∆◊¥Ã¨ ß∞‹ ID: {deviceId}");
+            }
+        }
+
+        private async Task UpdateDeviceNightMode(int deviceId, string nightMode)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = "UPDATE Devices SET NightMode = @nightMode, UpdatedAt = @now WHERE Id = @deviceId";
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var modeParam = cmd.CreateParameter();
+                modeParam.ParameterName = "@nightMode";
+                modeParam.Value = nightMode;
+                cmd.Parameters.Add(modeParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"∏¸–¬…Ë±∏“π ”ƒ£ Ω ß∞‹ ID: {deviceId}");
+            }
+        }
+
+        private async Task ParseAndUpdateDeviceSpecificValues(int deviceId, string deviceType, string currentValue)
+        {
+            try
+            {
+                switch (deviceType)
+                {
+                    case "ac":
+                        var acMatch = Regex.Match(currentValue, @"(\w+)\s+(\d+)°„C");
+                        if (acMatch.Success)
+                        {
+                            var mode = acMatch.Groups[1].Value;
+                            var temp = int.Parse(acMatch.Groups[2].Value);
+                            await UpdateDeviceAcMode(deviceId, mode);
+                            await UpdateDeviceAcTemperature(deviceId, temp);
+                        }
+                        break;
+
+                    case "fan":
+                        var fanMatch = Regex.Match(currentValue, @"∑ÁÀŸ\s+(\d+)");
+                        if (fanMatch.Success)
+                        {
+                            var speed = int.Parse(fanMatch.Groups[1].Value);
+                            await UpdateDeviceFanSpeed(deviceId, speed);
+                        }
+                        break;
+
+                    case "light":
+                        bool isLightOn = currentValue == "ø™∆Ù";
+                        await UpdateDevicePowerStatus(deviceId, isLightOn);
+                        break;
+
+                    case "lock":
+                        bool isLocked = currentValue == "“—…œÀ¯";
+                        await UpdateDevicePowerStatus(deviceId, isLocked);
+                        break;
+
+                    case "camera":
+                        // …„œÒÕ∑£∫∏˘æ› currentValue ∏¸–¬ø™πÿ◊¥Ã¨
+                        if (currentValue == "ø™∆Ù")
+                        {
+                            await UpdateDeviceCameraPowerStatus(deviceId, true);
+                        }
+                        else if (currentValue == "πÿ±’")
+                        {
+                            await UpdateDeviceCameraPowerStatus(deviceId, false);
+                        }
+                        break;
+
+                    case "motor":
+                        await UpdateDeviceMotorDirection(deviceId, currentValue);
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Ω‚Œˆ…Ë±∏Ãÿ∂®÷µ ß∞‹: DeviceId={deviceId}, Type={deviceType}, Value={currentValue}");
+            }
+        }
+
+        // ==================== œ˚œ¢¥¶¿Ì∆˜ ====================
+
+        private async Task HandleRegisterAsync(TcpMessage message)
+        {
+            try
+            {
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                };
+
+                var registerData = JsonSerializer.Deserialize<RegisterMessage>(message.Data.ToString()!, options);
+                if (registerData == null)
+                {
+                    _logger.LogError("◊¢≤·œ˚œ¢Ω‚Œˆ ß∞‹£∫ ˝æ›Œ™ø’");
+                    return;
+                }
+
+                _logger.LogInformation($" ’µΩ◊¢≤·«Î«Û: …Ë±∏√˚={registerData.DeviceInfo.Name}, ¿‡–Õ={registerData.DeviceInfo.Type}, ∑øº‰={registerData.DeviceInfo.Room}, MAC={registerData.MacAddress}");
+
+                TcpClientInfo? clientInfo = null;
+                string clientKey = "";
+
+                lock (_connectedClients)
+                {
+                    var tempKey = _connectedClients.Keys.FirstOrDefault(k => k.StartsWith("temp_"));
+                    if (!string.IsNullOrEmpty(tempKey))
+                    {
+                        clientInfo = _connectedClients[tempKey];
+                        clientKey = tempKey;
+                        _logger.LogInformation($"’“µΩ¡Ÿ ±¡¨Ω”: {tempKey}");
+                    }
+                }
+
+                if (clientInfo == null)
+                {
+                    lock (_connectedClients)
+                    {
+                        var match = _connectedClients.Values
+                            .Where(c => c.IpAddress == registerData.IpAddress)
+                            .OrderByDescending(c => c.LastSeen)
+                            .FirstOrDefault();
+
+                        if (match != null)
+                        {
+                            clientInfo = match;
+                            clientKey = _connectedClients.First(kv => kv.Value == match).Key;
+                            _logger.LogInformation($"Õ®π˝ IP µÿ÷∑’“µΩ¡¨Ω”: {clientKey}");
+                        }
+                    }
+                }
+
+                if (clientInfo == null)
+                {
+                    _logger.LogError($"Œ¥’“µΩø…”√¡¨Ω”£¨µ±«∞¡¨Ω”¡–±Ì: {string.Join(", ", _connectedClients.Keys)}");
+                    return;
+                }
+
+                if (clientInfo.Stream == null && clientInfo.Client != null)
+                {
+                    clientInfo.Stream = clientInfo.Client.GetStream();
+                }
+
+                var existingDevice = await GetDeviceByFullIdRawAsync(message.DeviceId);
+
+                if (existingDevice == null)
+                {
+                    existingDevice = await GetDeviceByNameAndRoomRawAsync(registerData.DeviceInfo.Name, registerData.DeviceInfo.Room);
+                }
+
+                if (existingDevice != null)
+                {
+                    _logger.LogInformation($"…Ë±∏“—¥Ê‘⁄: {existingDevice.FullDeviceId}");
+
+                    lock (_connectedClients)
+                    {
+                        if (!string.IsNullOrEmpty(clientKey) && _connectedClients.ContainsKey(clientKey))
+                        {
+                            _connectedClients.Remove(clientKey);
+                        }
+
+                        if (!_connectedClients.ContainsKey(existingDevice.FullDeviceId))
+                        {
+                            var existingClientInfo = new TcpClientInfo
+                            {
+                                Client = clientInfo.Client,
+                                Stream = clientInfo.Stream,
+                                DeviceId = existingDevice.FullDeviceId,
+                                DeviceName = existingDevice.Name,
+                                DeviceType = existingDevice.TypeIdentifier,
+                                IpAddress = clientInfo.IpAddress,
+                                Port = clientInfo.Port,
+                                ConnectedTime = clientInfo.ConnectedTime,
+                                LastSeen = DateTime.Now,
+                                LastHeartbeat = DateTime.Now
+                            };
+                            _connectedClients[existingDevice.FullDeviceId] = existingClientInfo;
+                        }
+                        else
+                        {
+                            var existing = _connectedClients[existingDevice.FullDeviceId];
+                            existing.Client = clientInfo.Client;
+                            existing.Stream = clientInfo.Stream;
+                            existing.LastSeen = DateTime.Now;
+                            existing.LastHeartbeat = DateTime.Now;
+                        }
+                    }
+
+                    if (existingDevice.TypeIdentifier == "camera")
+                    {
+                        await UpdateDeviceCameraOnlineStatus(existingDevice.Id, true);
+                    }
+                    else
+                    {
+                        await UpdateDeviceOnlineStatus(existingDevice.Id, true, "‘⁄œﬂ");
+                    }
+
+                    await SendRegisterResponse(message, existingDevice.FullDeviceId, clientInfo);
+
+                    var updatedDevicesList = await GetAllDevicesRawAsync();
+                    await SendDevicesUpdateToClients(updatedDevicesList);
+                    return;
+                }
+
+                // –¬…Ë±∏◊¢≤·¬ﬂº≠
+                var deviceType = registerData.DeviceInfo.Type;
+                var deviceRoom = registerData.DeviceInfo.Room;
+
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+
+                var existingDevicesList = await context.Devices
+                    .Where(d => d.RoomIdentifier == deviceRoom && d.TypeIdentifier == deviceType)
+                    .ToListAsync();
+
+                int maxNumber = existingDevicesList
+                    .Select(d => int.TryParse(d.DeviceNumber, out int num) ? num : 0)
+                    .DefaultIfEmpty(0)
+                    .Max();
+
+                int sequence = maxNumber + 1;
+                string deviceNumber = sequence.ToString("D3");
+
+                string typeAbbr = GetTypeAbbr(deviceType);
+                string roomAbbr = GetRoomAbbr(deviceRoom);
+                string fullDeviceId = $"{typeAbbr}-{roomAbbr}-{deviceNumber}";
+
+                _logger.LogInformation($"…˙≥…–¬…Ë±∏ID: {fullDeviceId}");
+
+                var roomModel = await context.Rooms.FirstOrDefaultAsync(r => r.RoomId == deviceRoom);
+                var deviceTypeModel = await context.DeviceTypes.FirstOrDefaultAsync(t => t.TypeId == deviceType);
+
+                if (roomModel == null || deviceTypeModel == null)
+                {
+                    _logger.LogError($"∑øº‰ªÚ…Ë±∏¿‡–Õ≤ª¥Ê‘⁄: Room={deviceRoom}, Type={deviceType}");
+                    return;
+                }
+
+                // ∏˘æ›…Ë±∏¿‡–Õ…Ë÷√≥ı º◊¥Ã¨
+                string initialStatusText = "‘⁄œﬂ";
+                string initialDetail = $"{GetDeviceTypeDisplay(deviceType)} °§ ‘⁄œﬂ";
+
+                if (deviceType == "camera")
+                {
+                    initialStatusText = "πÿ±’";
+                    initialDetail = "…„œÒÕ∑ °§ ‘⁄œﬂ";
+                }
+
+                var newDevice = new DeviceModel
+                {
+                    Name = registerData.DeviceInfo.Name,
+                    DeviceNumber = deviceNumber,
+                    FullDeviceId = fullDeviceId,
+                    RoomId = roomModel.Id,
+                    DeviceTypeId = deviceTypeModel.Id,
+                    RoomIdentifier = deviceRoom,
+                    TypeIdentifier = deviceType,
+                    Icon = GetIconForDeviceType(deviceType),
+                    IsOn = deviceType == "camera" ? false : true,
+                    StatusText = initialStatusText,
+                    Detail = initialDetail,
+                    Power = "0W",
+                    PowerValue = 0,
+                    Progress = 0,
+                    ProgressColor = "#4caf50",
+                    CreatedAt = DateTime.Now
+                };
+
+                await context.Devices.AddAsync(newDevice);
+                await context.SaveChangesAsync();
+                _logger.LogInformation($"–¬…Ë±∏“—ÃÌº”µΩ ˝æ›ø‚: {fullDeviceId}");
+
+                roomModel.DeviceCount = await context.Devices.CountAsync(d => d.RoomIdentifier == deviceRoom);
+                roomModel.OnlineCount = await context.Devices.CountAsync(d => d.RoomIdentifier == deviceRoom && d.IsOn && d.StatusText != "¿Îœﬂ");
+                await context.SaveChangesAsync();
+
+                lock (_connectedClients)
+                {
+                    if (!string.IsNullOrEmpty(clientKey) && _connectedClients.ContainsKey(clientKey))
+                    {
+                        _connectedClients.Remove(clientKey);
+                    }
+
+                    if (!_connectedClients.ContainsKey(fullDeviceId))
+                    {
+                        var deviceClientInfo = new TcpClientInfo
+                        {
+                            Client = clientInfo.Client,
+                            Stream = clientInfo.Stream,
+                            DeviceId = fullDeviceId,
+                            DeviceName = newDevice.Name,
+                            DeviceType = deviceType,
+                            IpAddress = clientInfo.IpAddress,
+                            Port = clientInfo.Port,
+                            ConnectedTime = clientInfo.ConnectedTime,
+                            LastSeen = DateTime.Now,
+                            LastHeartbeat = DateTime.Now
+                        };
+                        _connectedClients[fullDeviceId] = deviceClientInfo;
+                    }
+                }
+
+                await SendRegisterResponse(message, fullDeviceId, clientInfo);
+
+                var allDevicesList = await GetAllDevicesRawAsync();
+                await SendDevicesUpdateToClients(allDevicesList);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "¥¶¿Ì◊¢≤·œ˚œ¢ ß∞‹");
+            }
+        }
+
+        private async Task UpdateDeviceOnlineStatus(int deviceId, bool isOnline, string statusText)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"UPDATE Devices 
+                           SET IsOn = @isOnline, 
+                               StatusText = @statusText,
+                               ProgressColor = CASE WHEN @isOnline = 1 THEN '#4caf50' ELSE '#a0a0a0' END,
+                               UpdatedAt = @now
+                           WHERE Id = @deviceId";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var isOnlineParam = cmd.CreateParameter();
+                isOnlineParam.ParameterName = "@isOnline";
+                isOnlineParam.Value = isOnline ? 1 : 0;
+                cmd.Parameters.Add(isOnlineParam);
+
+                var statusParam = cmd.CreateParameter();
+                statusParam.ParameterName = "@statusText";
+                statusParam.Value = statusText;
+                cmd.Parameters.Add(statusParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"∏¸–¬…Ë±∏‘⁄œﬂ◊¥Ã¨ ß∞‹ ID: {deviceId}");
+            }
+        }
+
+        private async Task SendRegisterResponse(TcpMessage message, string fullDeviceId, TcpClientInfo clientInfo)
+        {
+            var response = new TcpMessage
+            {
+                MessageId = $"resp-{message.MessageId}",
+                Type = "register_response",
+                DeviceId = fullDeviceId,
+                Data = new RegisterResponse
+                {
+                    Success = true,
+                    AssignedId = fullDeviceId,
+                    ServerTime = DateTime.UtcNow,
+                    Config = new DeviceConfig
+                    {
+                        HeartbeatInterval = 30,
+                        ReportInterval = 60
+                    }
+                }
+            };
+
+            if (clientInfo != null && clientInfo.Client != null && clientInfo.Client.Connected)
+            {
+                try
+                {
+                    var json = JsonSerializer.Serialize(response);
+                    var data = Encoding.UTF8.GetBytes(json + "\n");
+                    await clientInfo.Stream.WriteAsync(data, 0, data.Length);
+                    await clientInfo.Stream.FlushAsync();
+                    _logger.LogInformation($"“—∑¢ÀÕ◊¢≤·œÏ”¶µΩ…Ë±∏ {fullDeviceId}");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"Œﬁ∑®∑¢ÀÕ◊¢≤·œÏ”¶: {ex.Message}");
+                }
+            }
+        }
+
+        private async Task HandleHeartbeatAsync(TcpMessage message)
+        {
+            try
+            {
+                _logger.LogInformation($" ’µΩ–ƒÃ¯œ˚œ¢: …Ë±∏ID={message.DeviceId}");
+
+                bool needUpdate = false;
+
+                try
+                {
+                    var json = message.Data is JsonElement je ? je.GetRawText() : message.Data?.ToString() ?? "";
+                    if (!string.IsNullOrEmpty(json))
+                    {
+                        using var doc = JsonDocument.Parse(json);
+                        if (doc.RootElement.TryGetProperty("deviceStatus", out var statusArray) && statusArray.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var statusElem in statusArray.EnumerateArray())
+                            {
+                                if (!statusElem.TryGetProperty("deviceId", out var devIdElem)) continue;
+                                var otherDeviceId = devIdElem.GetString();
+                                if (string.IsNullOrEmpty(otherDeviceId)) continue;
+
+                                string? currentValue = null;
+                                if (statusElem.TryGetProperty("currentValue", out var curValElem) && curValElem.ValueKind == JsonValueKind.String)
+                                {
+                                    currentValue = curValElem.GetString();
+                                }
+
+                                bool? isOnline = null;
+                                if (statusElem.TryGetProperty("isOnline", out var isOnlineElem))
+                                {
+                                    if (isOnlineElem.ValueKind == JsonValueKind.True) isOnline = true;
+                                    else if (isOnlineElem.ValueKind == JsonValueKind.False) isOnline = false;
+                                }
+
+                                int? batteryLevel = null;
+                                if (statusElem.TryGetProperty("batteryLevel", out var batteryElem))
+                                {
+                                    batteryLevel = batteryElem.GetInt32();
+                                }
+
+                                var otherDevice = await GetDeviceByFullIdRawAsync(otherDeviceId);
+                                if (otherDevice != null)
+                                {
+                                    bool deviceUpdated = false;
+
+                                    // ¥¶¿Ì‘⁄œﬂ◊¥Ã¨
+                                    if (isOnline.HasValue)
+                                    {
+                                        if (otherDevice.TypeIdentifier == "camera")
+                                        {
+                                            await UpdateDeviceCameraOnlineStatus(otherDevice.Id, isOnline.Value);
+                                            deviceUpdated = true;
+                                            _logger.LogInformation($"…„œÒÕ∑ {otherDevice.Name} ‘⁄œﬂ◊¥Ã¨∏¸–¬: {(isOnline.Value ? "‘⁄œﬂ" : "¿Îœﬂ")}");
+                                        }
+                                        else
+                                        {
+                                            await UpdateDeviceOnlineStatus(otherDevice.Id, isOnline.Value, currentValue ?? (isOnline.Value ? "‘⁄œﬂ" : "¿Îœﬂ"));
+                                            deviceUpdated = true;
+                                        }
+                                    }
+
+                                    // ∏¸–¬◊¥Ã¨Œƒ±æ£®ø™πÿ◊¥Ã¨£©
+                                    if (!string.IsNullOrEmpty(currentValue))
+                                    {
+                                        await UpdateDeviceStatusText(otherDevice.Id, currentValue);
+                                        deviceUpdated = true;
+
+                                        // ∂‘”⁄…„œÒÕ∑£¨ªπ–Ë∏¸–¬ IsOn ◊¥Ã¨£®ø™πÿ◊¥Ã¨£©
+                                        if (otherDevice.TypeIdentifier == "camera")
+                                        {
+                                            bool isCameraOn = currentValue == "ø™∆Ù";
+                                            await UpdateDeviceCameraPowerStatus(otherDevice.Id, isCameraOn);
+                                        }
+
+                                        await ParseAndUpdateDeviceSpecificValues(otherDevice.Id, otherDevice.TypeIdentifier, currentValue);
+                                    }
+
+                                    // ∏¸–¬µÁ¡ø
+                                    if (batteryLevel.HasValue)
+                                    {
+                                        await UpdateDeviceBatteryLevel(otherDevice.Id, batteryLevel.Value);
+                                        deviceUpdated = true;
+                                    }
+
+                                    if (deviceUpdated)
+                                    {
+                                        needUpdate = true;
+                                    }
+
+                                    // ¥¥Ω® TCP ¡¨Ω””≥…‰
+                                    if (isOnline.HasValue && isOnline.Value)
+                                    {
+                                        lock (_connectedClients)
+                                        {
+                                            if (!_connectedClients.ContainsKey(otherDeviceId) && _connectedClients.ContainsKey(message.DeviceId))
+                                            {
+                                                var src = _connectedClients[message.DeviceId];
+                                                var mapped = new TcpClientInfo
+                                                {
+                                                    Client = src.Client,
+                                                    Stream = src.Stream,
+                                                    DeviceId = otherDeviceId,
+                                                    DeviceName = otherDevice.Name,
+                                                    DeviceType = otherDevice.TypeIdentifier,
+                                                    IpAddress = src.IpAddress,
+                                                    Port = src.Port,
+                                                    ConnectedTime = src.ConnectedTime,
+                                                    LastSeen = DateTime.Now,
+                                                    LastHeartbeat = DateTime.Now
+                                                };
+                                                _connectedClients[otherDeviceId] = mapped;
+                                                _logger.LogInformation($"‘⁄–ƒÃ¯÷–Œ™…Ë±∏¥¥Ω®TCP”≥…‰: {otherDeviceId}");
+                                            }
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    _logger.LogWarning($"–ƒÃ¯÷–…Ë±∏≤ª¥Ê‘⁄: {otherDeviceId}");
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "¥¶¿Ì–ƒÃ¯œ˚œ¢ ß∞‹");
+                }
+
+                TcpClientInfo? clientInfo = null;
+                lock (_connectedClients)
+                {
+                    if (_connectedClients.ContainsKey(message.DeviceId))
+                    {
+                        clientInfo = _connectedClients[message.DeviceId];
+                    }
+                }
+
+                if (clientInfo != null && clientInfo.Client != null && clientInfo.Client.Connected)
+                {
+                    var response = new TcpMessage
+                    {
+                        MessageId = $"resp-{message.MessageId}",
+                        Type = "heartbeat_response",
+                        DeviceId = message.DeviceId,
+                        Data = new HeartbeatResponse
+                        {
+                            Sequence = 1,
+                            ServerTime = DateTime.UtcNow
+                        }
+                    };
+
+                    await SendToClientAsync(message.DeviceId, response);
+                    _logger.LogInformation($"–ƒÃ¯œÏ”¶“—∑¢ÀÕµΩ…Ë±∏ {message.DeviceId}");
+                }
+
+                if (needUpdate)
+                {
+                    var updatedDevices = await GetAllDevicesRawAsync();
+                    await SendDevicesUpdateToClients(updatedDevices);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "¥¶¿Ì–ƒÃ¯œ˚œ¢ ß∞‹");
+            }
+        }
+
+        private async Task HandleTelemetryAsync(TcpMessage message)
+        {
+            try
+            {
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                };
+
+                var telemetryData = JsonSerializer.Deserialize<TelemetryData>(message.Data.ToString()!, options);
+
+                if (telemetryData != null)
+                {
+                    _logger.LogInformation($"…Ë±∏ {message.DeviceId} “£≤‚ ˝æ›Ω” ’");
+
+                    OnTelemetryReceived?.Invoke(this, telemetryData);
+
+                    var device = await GetDeviceByFullIdRawAsync(message.DeviceId);
+                    bool needUpdate = false;
+
+                    if (device != null)
+                    {
+                        // ¥¶¿ÌŒ¬∂»¥´∏–∆˜
+                        if (telemetryData.TemperatureValue.HasValue && device.TypeIdentifier == "temp-sensor")
+                        {
+                            await UpdateDeviceTemperature(device.Id, telemetryData.TemperatureValue.Value);
+                            var statusText = $"Œ¬∂» {telemetryData.TemperatureValue.Value:F1}°„C";
+                            await UpdateDeviceStatusText(device.Id, statusText);
+                            needUpdate = true;
+                            _logger.LogInformation($"Œ¬∂»¥´∏–∆˜ {device.Name} Œ¬∂»∏¸–¬Œ™ {telemetryData.TemperatureValue.Value}°„C");
+                        }
+
+                        // ¥¶¿Ì ™∂»¥´∏–∆˜
+                        if (telemetryData.HumidityValue.HasValue && device.TypeIdentifier == "humidity-sensor")
+                        {
+                            await UpdateDeviceHumidity(device.Id, telemetryData.HumidityValue.Value);
+                            var statusText = $" ™∂» {telemetryData.HumidityValue.Value:F0}%";
+                            await UpdateDeviceStatusText(device.Id, statusText);
+                            needUpdate = true;
+                            _logger.LogInformation($" ™∂»¥´∏–∆˜ {device.Name}  ™∂»∏¸–¬Œ™ {telemetryData.HumidityValue.Value}%");
+                        }
+
+                        // ¥¶¿Ì…„œÒÕ∑
+                        if (device.TypeIdentifier == "camera")
+                        {
+                            if (telemetryData.IsOn.HasValue)
+                            {
+                                var statusText = telemetryData.IsOn.Value ? "ø™∆Ù" : "πÿ±’";
+                                await UpdateDeviceStatusText(device.Id, statusText);
+                                await UpdateDeviceCameraPowerStatus(device.Id, telemetryData.IsOn.Value);
+                                needUpdate = true;
+                                _logger.LogInformation($"…„œÒÕ∑ {device.Name} ø™πÿ◊¥Ã¨∏¸–¬Œ™: {statusText}");
+                            }
+
+                            if (telemetryData.MotionDetected.HasValue)
+                            {
+                                await UpdateDeviceMotionDetected(device.Id, telemetryData.MotionDetected.Value);
+                                needUpdate = true;
+                                _logger.LogInformation($"…„œÒÕ∑ {device.Name} ‘À∂Ø’Ï≤‚∏¸–¬Œ™: {telemetryData.MotionDetected.Value}");
+                            }
+
+                            if (telemetryData.IsRecording.HasValue)
+                            {
+                                await UpdateDeviceIsRecording(device.Id, telemetryData.IsRecording.Value);
+                                needUpdate = true;
+                                _logger.LogInformation($"…„œÒÕ∑ {device.Name} ¬º÷∆◊¥Ã¨∏¸–¬Œ™: {telemetryData.IsRecording.Value}");
+                            }
+
+                            if (!string.IsNullOrEmpty(telemetryData.NightMode))
+                            {
+                                await UpdateDeviceNightMode(device.Id, telemetryData.NightMode);
+                                needUpdate = true;
+                                _logger.LogInformation($"…„œÒÕ∑ {device.Name} “π ”ƒ£ Ω∏¸–¬Œ™: {telemetryData.NightMode}");
+                            }
+                        }
+
+                        // ¥¶¿ÌµÁ¡ø
+                        if (telemetryData.BatteryLevel.HasValue)
+                        {
+                            await UpdateDeviceBatteryLevel(device.Id, telemetryData.BatteryLevel.Value);
+                            needUpdate = true;
+                            _logger.LogInformation($"…Ë±∏ {device.Name} µÁ¡ø∏¸–¬Œ™ {telemetryData.BatteryLevel.Value}%");
+                        }
+
+                        if (needUpdate)
+                        {
+                            var updatedDevices = await GetAllDevicesRawAsync();
+                            await SendDevicesUpdateToClients(updatedDevices);
+
+                            await _hubContext.Clients.Group(message.DeviceId).SendAsync(
+                                "TelemetryUpdated",
+                                message.DeviceId,
+                                new
+                                {
+                                    deviceId = message.DeviceId,
+                                    isOn = telemetryData.IsOn,
+                                    motionDetected = telemetryData.MotionDetected,
+                                    isRecording = telemetryData.IsRecording,
+                                    nightMode = telemetryData.NightMode,
+                                    temperatureValue = telemetryData.TemperatureValue,
+                                    humidityValue = telemetryData.HumidityValue,
+                                    batteryLevel = telemetryData.BatteryLevel,
+                                    statusText = device.StatusText,
+                                    timestamp = DateTime.Now
+                                });
+
+                            _logger.LogInformation($"“—Õ∆ÀÕ…Ë±∏∏¸–¬µΩ«∞∂À: {message.DeviceId}");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "¥¶¿Ì“£≤‚ ˝æ› ß∞‹");
+            }
+        }
+
+        private async Task HandleStatusAsync(TcpMessage message)
+        {
+            try
+            {
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                };
+
+                var statusData = JsonSerializer.Deserialize<StatusData>(message.Data.ToString()!, options);
+
+                if (statusData != null)
+                {
+                    _logger.LogInformation($"…Ë±∏ {message.DeviceId} ◊¥Ã¨: ‘⁄œﬂ={statusData.IsOnline}");
+
+                    var device = await GetDeviceByFullIdRawAsync(message.DeviceId);
+                    if (device != null)
+                    {
+                        if (device.TypeIdentifier == "camera")
+                        {
+                            // ∏¸–¬‘⁄œﬂ◊¥Ã¨£®øÿ÷∆ø®∆¨±‰ª“£©
+                            await UpdateDeviceCameraOnlineStatus(device.Id, statusData.IsOnline);
+
+                            // »Áπ˚”– currentValue£¨Õ¨ ±∏¸–¬ø™πÿ◊¥Ã¨
+                            if (statusData.CurrentValue != null)
+                            {
+                                var currentValueStr = statusData.CurrentValue.ToString();
+                                if (currentValueStr == "ø™∆Ù" || currentValueStr == "πÿ±’")
+                                {
+                                    await UpdateDeviceStatusText(device.Id, currentValueStr);
+                                    await UpdateDeviceCameraPowerStatus(device.Id, currentValueStr == "ø™∆Ù");
+                                }
+                            }
+                        }
+                        else
+                        {
+                            await UpdateDeviceOnlineStatus(device.Id, statusData.IsOnline, statusData.IsOnline ? "‘⁄œﬂ" : "¿Îœﬂ");
+                        }
+                        var updatedDevices = await GetAllDevicesRawAsync();
+                        await SendDevicesUpdateToClients(updatedDevices);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "¥¶¿Ì◊¥Ã¨œ˚œ¢ ß∞‹");
+            }
+        }
+
+        private async Task HandleCommandResponseAsync(TcpMessage message)
+        {
+            try
+            {
+                _logger.LogInformation($"…Ë±∏ {message.DeviceId} √¸¡ÓœÏ”¶");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "¥¶¿Ì√¸¡ÓœÏ”¶ ß∞‹");
+            }
+        }
+
+        private async Task HandleEventAsync(TcpMessage message)
+        {
+            try
+            {
+                _logger.LogInformation($"…Ë±∏ {message.DeviceId}  ¬º˛");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "¥¶¿Ì ¬º˛œ˚œ¢ ß∞‹");
+            }
+        }
+
+        private async Task HandleDisconnectAsync(TcpMessage message)
+        {
+            try
+            {
+                _logger.LogInformation($"…Ë±∏ {message.DeviceId} ∂œø™¡¨Ω”");
+                await SetDeviceOfflineInDatabase(message.DeviceId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "¥¶¿Ì∂œø™¡¨Ω”œ˚œ¢ ß∞‹");
+            }
+        }
+
+        public async Task SendCommandAsync(string deviceId, string command, Dictionary<string, object>? parameters = null)
+        {
+            _logger.LogInformation($"◊º±∏∑¢ÀÕ√¸¡ÓµΩ…Ë±∏ {deviceId}: {command}");
+
+            if (!_connectedClients.ContainsKey(deviceId))
+            {
+                throw new Exception($"…Ë±∏ {deviceId} ≤ª‘⁄œﬂ");
+            }
+
+            var commandData = new CommandData
+            {
+                CommandId = $"cmd-{DateTime.Now.Ticks}",
+                Command = command,
+                Parameters = parameters ?? new(),
+                Source = "server"
+            };
+
+            var message = new TcpMessage
+            {
+                MessageId = commandData.CommandId,
+                Type = "command",
+                DeviceId = deviceId,
+                Data = commandData
+            };
+
+            await SendToClientAsync(deviceId, message);
+            _logger.LogInformation($"∑¢ÀÕ√¸¡ÓµΩ…Ë±∏ {deviceId}: {command}");
+        }
+
+        private async Task SendToClientAsync(string deviceId, TcpMessage message)
+        {
+            TcpClientInfo? clientInfo = null;
+
+            lock (_connectedClients)
+            {
+                if (_connectedClients.ContainsKey(deviceId))
+                {
+                    clientInfo = _connectedClients[deviceId];
+                }
+            }
+
+            if (clientInfo == null)
+            {
+                throw new Exception($"…Ë±∏ {deviceId} ≤ª‘⁄œﬂ");
+            }
+
+            if (clientInfo.Client == null || !clientInfo.Client.Connected)
+            {
+                throw new Exception($"…Ë±∏ {deviceId} µƒTCP¡¨Ω”“—∂œø™");
+            }
+
+            var json = JsonSerializer.Serialize(message);
+            var data = Encoding.UTF8.GetBytes(json + "\n");
+
+            try
+            {
+                await clientInfo.Stream.WriteAsync(data, 0, data.Length);
+                await clientInfo.Stream.FlushAsync();
+                _logger.LogDebug($"∑¢ÀÕœ˚œ¢µΩ…Ë±∏ {deviceId}: {message.Type}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"∑¢ÀÕœ˚œ¢µΩ…Ë±∏ {deviceId}  ß∞‹");
+                throw;
+            }
+        }
+
+        public List<TcpDevice> GetAllDevices()
+        {
+            var devices = new List<TcpDevice>();
+
+            lock (_connectedClients)
+            {
+                foreach (var c in _connectedClients.Values)
+                {
+                    if (!string.IsNullOrEmpty(c.DeviceId) && !c.DeviceId.StartsWith("temp_"))
+                    {
+                        devices.Add(new TcpDevice
+                        {
+                            DeviceId = c.DeviceId ?? "",
+                            DeviceName = c.DeviceName,
+                            DeviceType = c.DeviceType,
+                            IpAddress = c.IpAddress,
+                            Port = c.Port,
+                            LastSeen = c.LastSeen,
+                            IsOnline = true,
+                            Properties = new Dictionary<string, object>
+                            {
+                                ["connectedTime"] = c.ConnectedTime,
+                                ["lastHeartbeat"] = c.LastHeartbeat
+                            }
+                        });
+                    }
+                }
+            }
+
+            return devices;
+        }
+
+        public TcpDevice? GetDevice(string deviceId)
+        {
+            lock (_connectedClients)
+            {
+                if (_connectedClients.ContainsKey(deviceId))
+                {
+                    var c = _connectedClients[deviceId];
+                    return new TcpDevice
+                    {
+                        DeviceId = c.DeviceId ?? "",
+                        DeviceName = c.DeviceName,
+                        DeviceType = c.DeviceType,
+                        IpAddress = c.IpAddress,
+                        Port = c.Port,
+                        LastSeen = c.LastSeen,
+                        IsOnline = true,
+                        Properties = new Dictionary<string, object>
+                        {
+                            ["connectedTime"] = c.ConnectedTime,
+                            ["lastHeartbeat"] = c.LastHeartbeat
+                        }
+                    };
+                }
+            }
+            return null;
+        }
+
+        private async Task SyncDeviceStatus()
+        {
+            try
+            {
+                var onlineStatus = new Dictionary<string, bool>();
+                lock (_connectedClients)
+                {
+                    foreach (var kvp in _connectedClients)
+                    {
+                        if (!kvp.Key.StartsWith("temp_") && !string.IsNullOrEmpty(kvp.Value.DeviceId))
+                        {
+                            onlineStatus[kvp.Key] = true;
+                        }
+                    }
+                }
+
+                var allDevices = await GetAllDevicesRawAsync();
+                await SendDevicesUpdateToClients(allDevices);
+                _logger.LogDebug($"…Ë±∏◊¥Ã¨Õ¨≤ΩÕÍ≥…£¨‘⁄œﬂ…Ë±∏: {onlineStatus.Count}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Õ¨≤Ω…Ë±∏◊¥Ã¨ ß∞‹");
+            }
+        }
 
         private async void CheckHeartbeats(object? state)
         {
@@ -268,15 +2135,18 @@ namespace SmartHomeDashboard.Services
 
                 lock (_connectedClients)
                 {
-                    foreach (var kvp in _connectedClients)
+                    foreach (var kvp in _connectedClients.ToList())
                     {
                         var deviceId = kvp.Key;
                         var clientInfo = kvp.Value;
 
+                        if (deviceId.StartsWith("temp_")) continue;
+                        if (string.IsNullOrEmpty(clientInfo.DeviceId)) continue;
+
                         if ((now - clientInfo.LastHeartbeat).TotalSeconds > _heartbeatTimeoutSeconds)
                         {
                             timeoutDevices.Add(deviceId);
-                            _logger.LogWarning($"ËÆæÂ§á {deviceId} ÂøÉË∑≥Ë∂ÖÊó∂ÔºåÊúÄÂêéÂøÉË∑≥Êó∂Èó¥: {clientInfo.LastHeartbeat}");
+                            _logger.LogWarning($"…Ë±∏ {deviceId} –ƒÃ¯≥¨ ±");
                         }
                     }
                 }
@@ -285,10 +2155,43 @@ namespace SmartHomeDashboard.Services
                 {
                     await HandleDeviceTimeout(deviceId);
                 }
+
+                var tempDevices = new List<string>();
+                lock (_connectedClients)
+                {
+                    foreach (var kvp in _connectedClients.ToList())
+                    {
+                        if (kvp.Key.StartsWith("temp_"))
+                        {
+                            var clientInfo = kvp.Value;
+                            if ((now - clientInfo.LastHeartbeat).TotalSeconds > _heartbeatTimeoutSeconds)
+                            {
+                                tempDevices.Add(kvp.Key);
+                            }
+                        }
+                    }
+                }
+
+                foreach (var tempKey in tempDevices)
+                {
+                    lock (_connectedClients)
+                    {
+                        if (_connectedClients.TryGetValue(tempKey, out var clientInfo))
+                        {
+                            try
+                            {
+                                clientInfo.Client?.Close();
+                            }
+                            catch { }
+                            _connectedClients.Remove(tempKey);
+                            _logger.LogInformation($"«Â¿Ì¡Ÿ ±¡¨Ω”: {tempKey}");
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "ÂøÉË∑≥Ê£ÄÊü•ËøáÁ®ã‰∏≠ÂèëÁîüÈîôËØØ");
+                _logger.LogError(ex, "–ƒÃ¯ºÏ≤Èπ˝≥Ã÷–∑¢…˙¥ÌŒÛ");
             }
         }
 
@@ -326,1457 +2229,76 @@ namespace SmartHomeDashboard.Services
                     }
                     catch { }
 
-                    _logger.LogInformation($"ËÆæÂ§á {deviceId} Âõ†ÂøÉË∑≥Ë∂ÖÊó∂Â∑≤Á¶ªÁ∫ø");
+                    _logger.LogInformation($"…Ë±∏ {deviceId} “Ú–ƒÃ¯≥¨ ±“—¿Îœﬂ");
 
-                    await UpdateDeviceOfflineStatus(deviceId);
+                    // ∏˘æ›…Ë±∏¿‡–Õ∏¸–¬¿Îœﬂ◊¥Ã¨
+                    if (clientInfo.DeviceType == "camera")
+                    {
+                        if (int.TryParse(clientInfo.DeviceId?.Split('-').Last(), out int cameraId))
+                        {
+                            await UpdateDeviceCameraOnlineStatus(cameraId, false);
+                        }
+                    }
+                    else
+                    {
+                        await SetDeviceOfflineInDatabase(deviceId);
+                    }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Â§ÑÁêÜËÆæÂ§á {deviceId} Ë∂ÖÊó∂Êó∂ÂèëÁîüÈîôËØØ");
+                _logger.LogError(ex, $"¥¶¿Ì…Ë±∏ {deviceId} ≥¨ ± ±∑¢…˙¥ÌŒÛ");
             }
         }
 
-        private async Task UpdateDeviceOfflineStatus(string deviceId)
+        private async Task SendDevicesUpdateToClients(List<DeviceModel> devices)
         {
             try
             {
-                var allDevices = await _deviceDataService.GetAllDevicesAsync();
-                var deviceIdParts = deviceId?.Split('-');
-
-                if (deviceIdParts != null && deviceIdParts.Length == 3)
+                var simplifiedDevices = devices.Select(d => new
                 {
-                    var typeAbbr = deviceIdParts[0];
-                    var roomAbbr = deviceIdParts[1];
+                    d.Id,
+                    d.Name,
+                    d.DeviceNumber,
+                    d.FullDeviceId,
+                    d.RoomIdentifier,
+                    d.TypeIdentifier,
+                    d.Icon,
+                    d.IsOn,
+                    d.StatusText,
+                    d.Detail,
+                    d.Power,
+                    d.PowerValue,
+                    d.Progress,
+                    d.ProgressColor,
+                    d.Temperature,
+                    d.Humidity,
+                    d.MotorSpeed,
+                    d.Mode,
+                    d.Direction,
+                    d.TemperatureValue,
+                    d.HumidityValue,
+                    d.BatteryLevel,
+                    d.AcTemperature,
+                    d.AcMode,
+                    d.FanSpeed,
+                    d.MotorDirection,
+                    d.IsRecording,
+                    d.MotionDetected,
+                    d.NightMode,
+                    d.CreatedAt
+                }).ToList();
 
-                    string targetType = typeAbbr switch
-                    {
-                        "hum" => "humidity-sensor",
-                        "temp" => "temp-sensor",
-                        "light" => "light",
-                        "ac" => "ac",
-                        "lock" => "lock",
-                        "cam" => "camera",
-                        "fan" => "fan",
-                        "motor" => "motor",
-                        _ => "unknown"
-                    };
-
-                    string targetRoom = roomAbbr switch
-                    {
-                        "ent" => "entrance",
-                        "liv" => "living",
-                        "kit" => "kitchen",
-                        "mbd" => "master-bedroom",
-                        "sbd" => "second-bedroom",
-                        "bat" => "bathroom",
-                        "din" => "dining",
-                        _ => "unknown"
-                    };
-
-                    var targetDevice = allDevices.FirstOrDefault(d =>
-                        d.TypeIdentifier == targetType && d.RoomIdentifier == targetRoom);
-
-                    if (targetDevice != null && targetDevice.IsOn && targetDevice.StatusText != "Á¶ªÁ∫ø")
-                    {
-                        targetDevice.IsOn = false;
-                        targetDevice.StatusText = "Á¶ªÁ∫ø";
-                        await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, false, "Á¶ªÁ∫ø");
-                        _logger.LogInformation($"Â∑≤Êõ¥Êñ∞ËÆæÂ§á {targetDevice.Name} Áä∂ÊÄÅ‰∏∫Á¶ªÁ∫øÔºàÂøÉË∑≥Ë∂ÖÊó∂Ôºâ");
-                    }
-                }
-
-                var updatedDevices = await _deviceDataService.GetAllDevicesAsync();
-                await _hubContext.Clients.All.SendAsync("DevicesUpdated", updatedDevices);
+                await _hubContext.Clients.All.SendAsync("DevicesUpdated", simplifiedDevices);
+                _logger.LogDebug($"“—∑¢ÀÕ…Ë±∏¡–±Ì∏¸–¬£¨π≤ {devices.Count} ∏ˆ…Ë±∏");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Êõ¥Êñ∞ËÆæÂ§á {deviceId} Á¶ªÁ∫øÁä∂ÊÄÅÂ§±Ë¥•");
+                _logger.LogError(ex, "∑¢ÀÕ…Ë±∏¡–±Ì∏¸–¬ ß∞‹");
             }
         }
 
-        // ==================== ÂÆ¢Êà∑Á´ØËøûÊé•Â§ÑÁêÜ ====================
-
-        private async Task HandleClientAsync(TcpClient client)
-        {
-            var endpoint = client.Client.RemoteEndPoint as IPEndPoint;
-            var ipAddress = endpoint?.Address.ToString() ?? "Êú™Áü•";
-            var port = endpoint?.Port ?? 0;
-            int messageCount = 0;
-            string? deviceId = null;
-
-            _logger.LogInformation($"");
-            _logger.LogInformation($"========== Êñ∞ÂÆ¢Êà∑Á´ØËøûÊé• ==========");
-            _logger.LogInformation($"IPÂú∞ÂùÄ: {ipAddress}:{port}");
-            _logger.LogInformation($"ËøûÊé•Êó∂Èó¥: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-            _logger.LogInformation($"==================================");
-
-            var clientInfo = new TcpClientInfo
-            {
-                Client = client,
-                IpAddress = ipAddress,
-                Port = port,
-                ConnectedTime = DateTime.Now,
-                LastHeartbeat = DateTime.Now,
-                Stream = client.GetStream()
-            };
-
-            try
-            {
-                using var reader = new StreamReader(clientInfo.Stream, Encoding.UTF8);
-                var buffer = new char[4096];
-                var messageBuffer = new StringBuilder();
-
-                while (_isRunning && client.Connected)
-                {
-                    var bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length);
-                    if (bytesRead == 0) break;
-
-                    messageBuffer.Append(buffer, 0, bytesRead);
-                    var messages = messageBuffer.ToString().Split('\n');
-
-                    for (int i = 0; i < messages.Length - 1; i++)
-                    {
-                        var messageStr = messages[i].Trim();
-                        if (!string.IsNullOrEmpty(messageStr))
-                        {
-                            messageCount++;
-                            await ProcessMessageAsync(messageStr, clientInfo, messageCount);
-
-                            clientInfo.LastHeartbeat = DateTime.Now;
-
-                            if (deviceId == null)
-                            {
-                                try
-                                {
-                                    var msg = JsonSerializer.Deserialize<JsonDocument>(messageStr);
-                                    if (msg.RootElement.TryGetProperty("deviceId", out var devIdElement))
-                                    {
-                                        deviceId = devIdElement.GetString();
-                                        if (!string.IsNullOrEmpty(deviceId))
-                                        {
-                                            lock (_connectedClients)
-                                            {
-                                                if (_connectedClients.ContainsKey(deviceId))
-                                                {
-                                                    _connectedClients[deviceId].Client = client;
-                                                    _connectedClients[deviceId].Stream = clientInfo.Stream;
-                                                    _connectedClients[deviceId].LastHeartbeat = DateTime.Now;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                catch { }
-                            }
-                        }
-                    }
-
-                    messageBuffer.Clear();
-                    messageBuffer.Append(messages.Last());
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "ÂÆ¢Êà∑Á´ØËøûÊé•Â§ÑÁêÜÂºÇÂ∏∏ÔºàÊ≠£Â∏∏Êñ≠ÂºÄÔºâ");
-            }
-            finally
-            {
-                _logger.LogInformation($"");
-                _logger.LogInformation($"========== ÂÆ¢Êà∑Á´ØÊñ≠ÂºÄËøûÊé• ==========");
-                _logger.LogInformation($"IPÂú∞ÂùÄ: {ipAddress}:{port}");
-                _logger.LogInformation($"ËÆæÂ§áID: {deviceId ?? "Êú™Áü•"}");
-                _logger.LogInformation($"Êñ≠ÂºÄÊó∂Èó¥: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-                _logger.LogInformation($"ÊÄªËÆ°Êé•Êî∂Ê∂àÊÅØ: {messageCount} Êù°");
-                _logger.LogInformation($"====================================");
-
-                if (!string.IsNullOrEmpty(deviceId))
-                {
-                    lock (_connectedClients)
-                    {
-                        if (_connectedClients.TryGetValue(deviceId, out var existingClient))
-                        {
-                            existingClient.Client = null;
-                            existingClient.Stream = null;
-                        }
-                    }
-                }
-
-                try
-                {
-                    client.Close();
-                }
-                catch { }
-            }
-        }
-
-        private async Task ProcessMessageAsync(string messageStr, TcpClientInfo clientInfo, int messageCount)
-        {
-            _logger.LogInformation($"");
-            _logger.LogInformation($"----- Êî∂Âà∞Á¨¨ {messageCount} Êù°Ê∂àÊÅØ -----");
-            _logger.LogInformation($"Êó∂Èó¥: {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}");
-            _logger.LogInformation($"Êù•Ê∫ê: {clientInfo.IpAddress}:{clientInfo.Port}");
-            _logger.LogInformation($"ÂéüÂßãÊï∞ÊçÆ:");
-            _logger.LogInformation(messageStr);
-            _logger.LogInformation($"----------------------------------------");
-
-            try
-            {
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                };
-
-                var message = JsonSerializer.Deserialize<TcpMessage>(messageStr, options);
-
-                if (message != null)
-                {
-                    _logger.LogInformation($"Ëß£ÊûêÁªìÊûú: Á±ªÂûã={message.Type}, ËÆæÂ§áID={message.DeviceId}");
-
-                    message.Timestamp = DateTime.UtcNow;
-                    OnMessageReceived?.Invoke(this, message);
-
-                    await ProcessMessageByTypeAsync(message, clientInfo);
-                }
-                else
-                {
-                    _logger.LogWarning($"Ê∂àÊÅØËß£ÊûêÂ§±Ë¥•: ËøîÂõûnull");
-                }
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogError($"JSONËß£ÊûêÈîôËØØ: {ex.Message}");
-                _logger.LogError($"ÈîôËØØ‰ΩçÁΩÆ: {ex.Path}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Â§ÑÁêÜÊ∂àÊÅØÊó∂ÂèëÁîüÊú™Áü•ÈîôËØØ: {ex.Message}");
-            }
-
-            _logger.LogInformation($"----- Ê∂àÊÅØÂ§ÑÁêÜÂÆåÊàê -----");
-            _logger.LogInformation($"");
-        }
-
-        private async Task ProcessMessageByTypeAsync(TcpMessage message, TcpClientInfo clientInfo)
-        {
-            foreach (var handler in _messageHandlers)
-            {
-                if (handler.Key == message.Type)
-                {
-                    try
-                    {
-                        await handler.Value(message);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, $"ÊâßË°åÊ∂àÊÅØÂ§ÑÁêÜÂô®Â§±Ë¥•: {handler.Key}");
-                    }
-                }
-            }
-
-            if (!string.IsNullOrEmpty(message.DeviceId))
-            {
-                lock (_connectedClients)
-                {
-                    if (_connectedClients.ContainsKey(message.DeviceId))
-                    {
-                        _connectedClients[message.DeviceId].LastSeen = DateTime.Now;
-                        _connectedClients[message.DeviceId].LastHeartbeat = DateTime.Now;
-                    }
-                }
-            }
-        }
-
-        private void RegisterDefaultHandlers()
-        {
-            _messageHandlers["register"] = async (message) =>
-            {
-                _logger.LogInformation("ÊâßË°åÊ≥®ÂÜåÂ§ÑÁêÜÂô®");
-                await HandleRegisterAsync(message);
-            };
-
-            _messageHandlers["heartbeat"] = async (message) =>
-            {
-                _logger.LogInformation("ÊâßË°åÂøÉË∑≥Â§ÑÁêÜÂô®");
-                await HandleHeartbeatAsync(message);
-            };
-
-            _messageHandlers["status"] = async (message) =>
-            {
-                _logger.LogInformation("ÊâßË°åÁä∂ÊÄÅÂ§ÑÁêÜÂô®");
-                await HandleStatusAsync(message);
-            };
-
-            _messageHandlers["telemetry"] = async (message) =>
-            {
-                _logger.LogDebug("ÊâßË°åÈÅ•ÊµãÊï∞ÊçÆÂ§ÑÁêÜÂô®");
-                await HandleTelemetryAsync(message);
-            };
-
-            _messageHandlers["command_response"] = async (message) =>
-            {
-                _logger.LogDebug("ÊâßË°åÂëΩ‰ª§ÂìçÂ∫îÂ§ÑÁêÜÂô®");
-                await HandleCommandResponseAsync(message);
-            };
-
-            _messageHandlers["event"] = async (message) =>
-            {
-                _logger.LogDebug("ÊâßË°å‰∫ã‰ª∂Â§ÑÁêÜÂô®");
-                await HandleEventAsync(message);
-            };
-
-            _messageHandlers["disconnect"] = async (message) =>
-            {
-                _logger.LogInformation("ÊâßË°åÊñ≠ÂºÄËøûÊé•Â§ÑÁêÜÂô®");
-                await HandleDisconnectAsync(message);
-            };
-        }
-
-        // ==================== Ê∂àÊÅØÂ§ÑÁêÜÂô® ====================
-
-        private async Task HandleRegisterAsync(TcpMessage message)
-        {
-            try
-            {
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                };
-
-                var registerData = JsonSerializer.Deserialize<RegisterMessage>(message.Data.ToString()!, options);
-                if (registerData == null)
-                {
-                    _logger.LogError("Ê≥®ÂÜåÊ∂àÊÅØËß£ÊûêÂ§±Ë¥•ÔºöÊï∞ÊçÆ‰∏∫Á©∫");
-                    return;
-                }
-
-                if (!ValidateRegisterMessage(registerData, out string validationError))
-                {
-                    _logger.LogError($"Ê≥®ÂÜåÊ∂àÊÅØÈ™åËØÅÂ§±Ë¥•: {validationError}");
-                    return;
-                }
-
-                _logger.LogInformation($"ËÆæÂ§áÊ≥®ÂÜå: {registerData.DeviceInfo.Name}, Á±ªÂûã: {registerData.DeviceInfo.Type}, ÊàøÈó¥: {registerData.DeviceInfo.Room}, MAC: {registerData.MacAddress}");
-
-                var deviceType = registerData.DeviceInfo.Type;
-                var deviceRoom = registerData.DeviceInfo.Room;
-
-                var validTypes = new[] { "fan", "temp-sensor", "humidity-sensor", "light", "ac", "lock", "camera", "motor" };
-                if (!validTypes.Contains(deviceType))
-                {
-                    _logger.LogWarning($"Êú™Áü•ÁöÑËÆæÂ§áÁ±ªÂûã: {deviceType}ÔºåÂ∞Ü‰ΩøÁî®ÈªòËÆ§Á±ªÂûã");
-                    deviceType = "unknown";
-                }
-
-                var validRooms = new[] { "living", "master-bedroom", "second-bedroom", "kitchen", "bathroom", "dining", "entrance" };
-                if (!validRooms.Contains(deviceRoom))
-                {
-                    _logger.LogWarning($"Êú™Áü•ÁöÑÊàøÈó¥: {deviceRoom}ÔºåÂ∞Ü‰ΩøÁî®ÈªòËÆ§ÊàøÈó¥");
-                    deviceRoom = "discovered";
-                }
-
-                var deviceId = await GenerateDeviceIdAsync(deviceType, deviceRoom);
-
-                var clientInfo = _connectedClients.Values.FirstOrDefault(c => c.IpAddress == registerData.IpAddress);
-
-                if (clientInfo == null)
-                {
-                    _logger.LogInformation($"‰∏∫IP {registerData.IpAddress} ÂàõÂª∫Êñ∞ÁöÑÂÆ¢Êà∑Á´Ø‰ø°ÊÅØ");
-
-                    clientInfo = new TcpClientInfo
-                    {
-                        IpAddress = registerData.IpAddress,
-                        ConnectedTime = DateTime.Now,
-                        LastSeen = DateTime.Now,
-                        LastHeartbeat = DateTime.Now
-                    };
-                }
-
-                clientInfo.DeviceId = deviceId;
-                clientInfo.DeviceName = registerData.DeviceInfo.Name;
-                clientInfo.DeviceType = deviceType;
-
-                lock (_connectedClients)
-                {
-                    _connectedClients[deviceId] = clientInfo;
-                }
-
-                _logger.LogInformation($"ÂÆ¢Êà∑Á´Ø‰ø°ÊÅØÂ∑≤Êõ¥Êñ∞: {deviceId}");
-
-                var (typeAbbr, roomAbbr, sequence) = ParseDeviceId(deviceId);
-
-                var tcpDevice = new TcpDevice
-                {
-                    DeviceId = deviceId,
-                    DeviceName = registerData.DeviceInfo.Name,
-                    DeviceType = deviceType,
-                    IpAddress = registerData.IpAddress,
-                    LastSeen = DateTime.Now,
-                    IsOnline = true,
-                    Properties = new Dictionary<string, object>
-                    {
-                        ["typeAbbr"] = typeAbbr,
-                        ["roomAbbr"] = roomAbbr,
-                        ["sequence"] = sequence,
-                        ["macAddress"] = registerData.MacAddress,
-                        ["manufacturer"] = registerData.DeviceInfo.Manufacturer,
-                        ["model"] = registerData.DeviceInfo.Model,
-                        ["firmwareVersion"] = registerData.DeviceInfo.FirmwareVersion,
-                        ["capabilities"] = registerData.Capabilities
-                    }
-                };
-
-                OnDeviceConnected?.Invoke(this, tcpDevice);
-
-                var existingDevices = await _deviceDataService.GetAllDevicesAsync();
-                var exists = existingDevices.Any(d => d.Name == tcpDevice.DeviceName);
-
-                if (!exists)
-                {
-                    var dbDeviceType = deviceType switch
-                    {
-                        "fan" => "fan",
-                        "humidity-sensor" => "humidity-sensor",
-                        "temp-sensor" => "temp-sensor",
-                        "light" => "light",
-                        "ac" => "ac",
-                        "lock" => "lock",
-                        "camera" => "camera",
-                        "motor" => "motor",
-                        _ => "unknown"
-                    };
-
-                    var icon = dbDeviceType switch
-                    {
-                        "light" => "fa-lightbulb",
-                        "ac" => "fa-wind",
-                        "lock" => "fa-door-open",
-                        "camera" => "fa-camera",
-                        "fan" => "fa-fan",
-                        "temp-sensor" => "fa-thermometer-half",
-                        "humidity-sensor" => "fa-tint",
-                        "motor" => "fa-cogs",
-                        _ => "fa-microchip"
-                    };
-
-                    var addModel = new DeviceAddModel
-                    {
-                        Name = registerData.DeviceInfo.Name,
-                        RoomId = deviceRoom,
-                        TypeId = dbDeviceType,
-                        Icon = icon,
-                        Power = "0W",
-                        IsOn = true,
-                        Progress = 0
-                    };
-
-                    await _deviceDataService.AddDeviceAsync(addModel);
-                    _logger.LogInformation($"ÈÄöËøáTCPÂèëÁé∞Âπ∂Ê∑ªÂä†Êñ∞ËÆæÂ§á: {tcpDevice.DeviceName} (ID: {deviceId})");
-
-                    var updatedDevices = await _deviceDataService.GetAllDevicesAsync();
-                    await _hubContext.Clients.All.SendAsync("DevicesUpdated", updatedDevices);
-                }
-                else
-                {
-                    _logger.LogInformation($"ËÆæÂ§á {tcpDevice.DeviceName} Â∑≤Â≠òÂú®ÔºåÊó†ÈúÄÈáçÂ§çÊ∑ªÂä†");
-                }
-
-                var response = new TcpMessage
-                {
-                    MessageId = $"resp-{message.MessageId}",
-                    Type = "register_response",
-                    DeviceId = deviceId,
-                    Data = new RegisterResponse
-                    {
-                        Success = true,
-                        AssignedId = deviceId,
-                        ServerTime = DateTime.UtcNow,
-                        Config = new DeviceConfig
-                        {
-                            HeartbeatInterval = 30,
-                            ReportInterval = 60
-                        }
-                    }
-                };
-
-                if (clientInfo.Client != null && clientInfo.Client.Connected)
-                {
-                    await SendToClientAsync(deviceId, response);
-                    _logger.LogInformation($"Â∑≤ÂèëÈÄÅÊ≥®ÂÜåÂìçÂ∫îÂà∞ËÆæÂ§á {deviceId}");
-                }
-                else
-                {
-                    _logger.LogInformation($"ËÆæÂ§á {deviceId} Ê≥®ÂÜåÊàêÂäüÔºåÁ≠âÂæÖÂêéÁª≠ËøûÊé•");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Â§ÑÁêÜÊ≥®ÂÜåÊ∂àÊÅØÂ§±Ë¥•");
-            }
-        }
-
-        private async Task HandleHeartbeatAsync(TcpMessage message)
-        {
-            try
-            {
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                };
-
-                var heartbeatData = JsonSerializer.Deserialize<HeartbeatData>(message.Data.ToString()!, options);
-
-                if (heartbeatData != null)
-                {
-                    _logger.LogInformation($"Êî∂Âà∞ÂøÉË∑≥Ê∂àÊÅØ: Â∫èÂàóÂè∑={heartbeatData.Sequence}, Âú®Á∫øËÆæÂ§á={heartbeatData.OnlineCount}/{heartbeatData.TotalCount}");
-
-                    // Êõ¥Êñ∞ÂèëÈÄÅÂøÉË∑≥ÁöÑ‰∏ªËÆæÂ§áÁöÑÂøÉË∑≥Êó∂Èó¥
-                    if (!string.IsNullOrEmpty(message.DeviceId))
-                    {
-                        lock (_connectedClients)
-                        {
-                            if (_connectedClients.ContainsKey(message.DeviceId))
-                            {
-                                _connectedClients[message.DeviceId].LastHeartbeat = DateTime.Now;
-                                _connectedClients[message.DeviceId].LastSeen = DateTime.Now;
-                            }
-                        }
-                    }
-
-                    // Â§ÑÁêÜÂøÉË∑≥‰∏≠ÂåÖÂê´ÁöÑÊâÄÊúâËÆæÂ§áÁä∂ÊÄÅ
-                    if (heartbeatData.DeviceStatus != null && heartbeatData.DeviceStatus.Any())
-                    {
-                        bool anyDeviceUpdated = false;
-                        var allDevices = await _deviceDataService.GetAllDevicesAsync();
-
-                        foreach (var deviceStatus in heartbeatData.DeviceStatus)
-                        {
-                            var deviceIdParts = deviceStatus.DeviceId?.Split('-');
-                            if (deviceIdParts == null || deviceIdParts.Length != 3)
-                            {
-                                _logger.LogWarning($"Êó†ÊïàÁöÑËÆæÂ§áIDÊ†ºÂºè: {deviceStatus.DeviceId}");
-                                continue;
-                            }
-
-                            var typeAbbr = deviceIdParts[0];
-                            var roomAbbr = deviceIdParts[1];
-
-                            string targetType = typeAbbr switch
-                            {
-                                "hum" => "humidity-sensor",
-                                "temp" => "temp-sensor",
-                                "light" => "light",
-                                "ac" => "ac",
-                                "lock" => "lock",
-                                "cam" => "camera",
-                                "fan" => "fan",
-                                "motor" => "motor",
-                                "motion" => "motion-sensor",
-                                _ => "unknown"
-                            };
-
-                            string targetRoom = roomAbbr switch
-                            {
-                                "ent" => "entrance",
-                                "liv" => "living",
-                                "kit" => "kitchen",
-                                "mbd" => "master-bedroom",
-                                "sbd" => "second-bedroom",
-                                "bat" => "bathroom",
-                                "din" => "dining",
-                                _ => "unknown"
-                            };
-
-                            var targetDevice = allDevices.FirstOrDefault(d =>
-                                d.TypeIdentifier == targetType && d.RoomIdentifier == targetRoom);
-
-                            if (targetDevice != null)
-                            {
-                                bool statusChanged = false;
-
-                                if (targetDevice.TypeIdentifier == "temp-sensor")
-                                {
-                                    bool wasOnline = targetDevice.IsOn && targetDevice.StatusText != "Á¶ªÁ∫ø";
-                                    if (wasOnline != deviceStatus.IsOnline)
-                                    {
-                                        statusChanged = true;
-                                        targetDevice.IsOn = deviceStatus.IsOnline;
-
-                                        if (deviceStatus.IsOnline)
-                                        {
-                                            if (!string.IsNullOrEmpty(deviceStatus.CurrentValue) && deviceStatus.CurrentValue.Contains("¬∞C"))
-                                            {
-                                                try
-                                                {
-                                                    double temp = double.Parse(deviceStatus.CurrentValue.Replace("¬∞C", "").Trim());
-                                                    targetDevice.Temperature = temp;
-                                                    targetDevice.StatusText = $"Ê∏©Â∫¶ {temp:F1}¬∞C";
-                                                    _logger.LogInformation($"Ê∏©Â∫¶‰º†ÊÑüÂô® {targetDevice.Name} Âú®Á∫øÔºåÊ∏©Â∫¶: {temp}¬∞C");
-                                                }
-                                                catch
-                                                {
-                                                    targetDevice.StatusText = "Âú®Á∫ø";
-                                                }
-                                            }
-                                            else
-                                            {
-                                                targetDevice.StatusText = "Âú®Á∫ø";
-                                            }
-                                        }
-                                        else
-                                        {
-                                            targetDevice.StatusText = "Á¶ªÁ∫ø";
-                                            targetDevice.Temperature = null;
-                                            _logger.LogInformation($"Ê∏©Â∫¶‰º†ÊÑüÂô® {targetDevice.Name} Á¶ªÁ∫ø");
-                                        }
-
-                                        await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, deviceStatus.IsOnline, targetDevice.StatusText);
-                                        if (targetDevice.Temperature.HasValue)
-                                        {
-                                            await _deviceDataService.UpdateDeviceTemperatureAsync(targetDevice.Id, targetDevice.Temperature.Value);
-                                        }
-                                    }
-                                    else if (deviceStatus.IsOnline && !string.IsNullOrEmpty(deviceStatus.CurrentValue) && deviceStatus.CurrentValue.Contains("¬∞C"))
-                                    {
-                                        try
-                                        {
-                                            double temp = double.Parse(deviceStatus.CurrentValue.Replace("¬∞C", "").Trim());
-                                            if (targetDevice.Temperature != temp)
-                                            {
-                                                targetDevice.Temperature = temp;
-                                                targetDevice.StatusText = $"Ê∏©Â∫¶ {temp:F1}¬∞C";
-                                                await _deviceDataService.UpdateDeviceTemperatureAsync(targetDevice.Id, temp);
-                                                await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, true, targetDevice.StatusText);
-                                                statusChanged = true;
-                                                _logger.LogInformation($"Ê∏©Â∫¶‰º†ÊÑüÂô® {targetDevice.Name} Ê∏©Â∫¶Êõ¥Êñ∞: {temp}¬∞C");
-                                            }
-                                        }
-                                        catch { }
-                                    }
-                                }
-                                else
-                                {
-                                    bool wasOnline = targetDevice.IsOn && targetDevice.StatusText != "Á¶ªÁ∫ø";
-                                    if (wasOnline != deviceStatus.IsOnline)
-                                    {
-                                        statusChanged = true;
-                                        targetDevice.IsOn = deviceStatus.IsOnline;
-
-                                        if (deviceStatus.IsOnline)
-                                        {
-                                            if (!string.IsNullOrEmpty(deviceStatus.CurrentValue))
-                                            {
-                                                targetDevice.StatusText = deviceStatus.CurrentValue;
-                                            }
-                                            else
-                                            {
-                                                targetDevice.StatusText = targetDevice.TypeIdentifier switch
-                                                {
-                                                    "humidity-sensor" => "Âú®Á∫ø",
-                                                    "light" => "ÂºÄÂêØ",
-                                                    "lock" => "Â∑≤‰∏äÈîÅ",
-                                                    "camera" => "Âú®Á∫ø",
-                                                    "fan" => "ËøêË°å‰∏≠",
-                                                    "motor" => "ÂÅúÊ≠¢",
-                                                    "ac" => "Âà∂ÂÜ∑ 24¬∞C",
-                                                    "motion-sensor" => "Âú®Á∫ø",
-                                                    _ => "Âú®Á∫ø"
-                                                };
-                                            }
-                                            _logger.LogInformation($"ËÆæÂ§á {targetDevice.Name} ÈÄöËøáÂøÉË∑≥‰∏äÁ∫ø");
-                                        }
-                                        else
-                                        {
-                                            targetDevice.StatusText = "Á¶ªÁ∫ø";
-                                            _logger.LogInformation($"ËÆæÂ§á {targetDevice.Name} ÈÄöËøáÂøÉË∑≥Á¶ªÁ∫ø");
-                                        }
-
-                                        await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, deviceStatus.IsOnline, targetDevice.StatusText);
-                                    }
-                                }
-
-                                if (deviceStatus.BatteryLevel.HasValue && targetDevice.Humidity != deviceStatus.BatteryLevel.Value)
-                                {
-                                    await _deviceDataService.UpdateDeviceHumidityAsync(targetDevice.Id, deviceStatus.BatteryLevel.Value);
-                                    _logger.LogInformation($"Êõ¥Êñ∞ËÆæÂ§á {targetDevice.Name} ÁîµÈáè: {deviceStatus.BatteryLevel}%");
-                                    statusChanged = true;
-                                }
-
-                                if (!string.IsNullOrEmpty(deviceStatus.CurrentValue) && deviceStatus.IsOnline)
-                                {
-                                    if (targetDevice.TypeIdentifier == "humidity-sensor" && deviceStatus.CurrentValue.Contains("%"))
-                                    {
-                                        try
-                                        {
-                                            int humidity = int.Parse(deviceStatus.CurrentValue.Replace("%", "").Trim());
-                                            if (targetDevice.Humidity != humidity)
-                                            {
-                                                await _deviceDataService.UpdateDeviceHumidityAsync(targetDevice.Id, humidity);
-                                                _logger.LogInformation($"Êõ¥Êñ∞ÊπøÂ∫¶‰º†ÊÑüÂô® {targetDevice.Name}: {humidity}%");
-                                                statusChanged = true;
-                                            }
-                                        }
-                                        catch { }
-                                    }
-                                    else if (targetDevice.TypeIdentifier == "light" && (deviceStatus.CurrentValue == "ÂºÄÂêØ" || deviceStatus.CurrentValue == "ÂÖ≥Èó≠"))
-                                    {
-                                        bool newIsOn = deviceStatus.CurrentValue == "ÂºÄÂêØ";
-                                        if (targetDevice.IsOn != newIsOn || targetDevice.StatusText != deviceStatus.CurrentValue)
-                                        {
-                                            targetDevice.IsOn = newIsOn;
-                                            targetDevice.StatusText = deviceStatus.CurrentValue;
-                                            await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, targetDevice.IsOn, targetDevice.StatusText);
-                                            statusChanged = true;
-                                        }
-                                    }
-                                    else if (targetDevice.TypeIdentifier == "lock" && (deviceStatus.CurrentValue == "Â∑≤‰∏äÈîÅ" || deviceStatus.CurrentValue == "Êú™‰∏äÈîÅ"))
-                                    {
-                                        bool newIsOn = deviceStatus.CurrentValue == "Â∑≤‰∏äÈîÅ";
-                                        if (targetDevice.IsOn != newIsOn || targetDevice.StatusText != deviceStatus.CurrentValue)
-                                        {
-                                            targetDevice.IsOn = newIsOn;
-                                            targetDevice.StatusText = deviceStatus.CurrentValue;
-                                            await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, targetDevice.IsOn, targetDevice.StatusText);
-                                            statusChanged = true;
-                                        }
-                                    }
-                                    else if (targetDevice.TypeIdentifier == "motor")
-                                    {
-                                        if (deviceStatus.CurrentValue == "ÂÅúÊ≠¢" && targetDevice.IsOn)
-                                        {
-                                            targetDevice.IsOn = false;
-                                            targetDevice.StatusText = "ÂÅúÊ≠¢";
-                                            targetDevice.Direction = "stop";
-                                            await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, false, "ÂÅúÊ≠¢");
-                                            await _deviceDataService.UpdateDeviceDirectionAsync(targetDevice.Id, "stop");
-                                            statusChanged = true;
-                                        }
-                                        else if (deviceStatus.CurrentValue == "Ê≠£ËΩ¨" && (!targetDevice.IsOn || targetDevice.StatusText != "Ê≠£ËΩ¨"))
-                                        {
-                                            targetDevice.IsOn = true;
-                                            targetDevice.StatusText = "Ê≠£ËΩ¨";
-                                            targetDevice.Direction = "forward";
-                                            await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, true, "Ê≠£ËΩ¨");
-                                            await _deviceDataService.UpdateDeviceDirectionAsync(targetDevice.Id, "forward");
-                                            statusChanged = true;
-                                        }
-                                        else if (deviceStatus.CurrentValue == "ÂèçËΩ¨" && (!targetDevice.IsOn || targetDevice.StatusText != "ÂèçËΩ¨"))
-                                        {
-                                            targetDevice.IsOn = true;
-                                            targetDevice.StatusText = "ÂèçËΩ¨";
-                                            targetDevice.Direction = "reverse";
-                                            await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, true, "ÂèçËΩ¨");
-                                            await _deviceDataService.UpdateDeviceDirectionAsync(targetDevice.Id, "reverse");
-                                            statusChanged = true;
-                                        }
-                                    }
-                                    else if (targetDevice.TypeIdentifier == "fan" && deviceStatus.CurrentValue.StartsWith("È£éÈÄü"))
-                                    {
-                                        try
-                                        {
-                                            int speed = int.Parse(deviceStatus.CurrentValue.Replace("È£éÈÄü", "").Replace("Ê°£", "").Trim());
-                                            if (targetDevice.MotorSpeed != speed)
-                                            {
-                                                await _deviceDataService.UpdateDeviceMotorSpeedAsync(targetDevice.Id, speed);
-                                                _logger.LogInformation($"Êõ¥Êñ∞È£éÊâá {targetDevice.Name} ËΩ¨ÈÄü: {speed}Ê°£");
-                                                statusChanged = true;
-                                            }
-                                        }
-                                        catch { }
-                                    }
-                                    else if (targetDevice.TypeIdentifier == "ac" && !deviceStatus.CurrentValue.Contains("¬∞C") && deviceStatus.CurrentValue != "ÂÖ≥Èó≠")
-                                    {
-                                        string mode = deviceStatus.CurrentValue switch
-                                        {
-                                            "Âà∂ÂÜ∑" => "cool",
-                                            "Âà∂ÁÉ≠" => "heat",
-                                            "ÈÄÅÈ£é" => "fan",
-                                            "Èô§Êπø" => "dry",
-                                            "Ëá™Âä®" => "auto",
-                                            _ => targetDevice.Mode ?? "cool"
-                                        };
-
-                                        if (targetDevice.Mode != mode)
-                                        {
-                                            await _deviceDataService.UpdateDeviceModeAsync(targetDevice.Id, mode);
-                                            _logger.LogInformation($"Êõ¥Êñ∞Á©∫Ë∞É {targetDevice.Name} Ê®°Âºè: {deviceStatus.CurrentValue}");
-                                            statusChanged = true;
-                                        }
-                                    }
-                                }
-
-                                if (statusChanged)
-                                {
-                                    anyDeviceUpdated = true;
-                                }
-                            }
-                        }
-
-                        if (anyDeviceUpdated)
-                        {
-                            var updatedDevices = await _deviceDataService.GetAllDevicesAsync();
-                            await _hubContext.Clients.All.SendAsync("DevicesUpdated", updatedDevices);
-                        }
-                    }
-
-                    // ÂèëÈÄÅÂøÉË∑≥ÂìçÂ∫î
-                    var response = new TcpMessage
-                    {
-                        MessageId = $"resp-{message.MessageId}",
-                        Type = "heartbeat_response",
-                        DeviceId = message.DeviceId,
-                        Data = new HeartbeatResponse
-                        {
-                            Sequence = heartbeatData.Sequence,
-                            ServerTime = DateTime.UtcNow
-                        }
-                    };
-
-                    if (_connectedClients.ContainsKey(message.DeviceId) &&
-                        _connectedClients[message.DeviceId].Client != null &&
-                        _connectedClients[message.DeviceId].Client.Connected)
-                    {
-                        await SendToClientAsync(message.DeviceId, response);
-                        _logger.LogDebug($"ÂøÉË∑≥ÂìçÂ∫îÂ∑≤ÂèëÈÄÅÂà∞ËÆæÂ§á {message.DeviceId}");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Â§ÑÁêÜÂøÉË∑≥Ê∂àÊÅØÂ§±Ë¥•");
-            }
-        }
-
-        private async Task HandleStatusAsync(TcpMessage message)
-        {
-            try
-            {
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                };
-
-                var statusData = JsonSerializer.Deserialize<StatusData>(message.Data.ToString()!, options);
-
-                if (statusData != null)
-                {
-                    _logger.LogInformation($"ËÆæÂ§á {message.DeviceId} Áä∂ÊÄÅ: Âú®Á∫ø={statusData.IsOnline}, ÁîµÈáè={statusData.BatteryLevel}%, IP={statusData.IpAddress}");
-
-                    var allDevices = await _deviceDataService.GetAllDevicesAsync();
-                    var deviceIdParts = message.DeviceId?.Split('-');
-
-                    if (deviceIdParts != null && deviceIdParts.Length == 3)
-                    {
-                        var typeAbbr = deviceIdParts[0];
-                        var roomAbbr = deviceIdParts[1];
-
-                        string targetType = typeAbbr switch
-                        {
-                            "hum" => "humidity-sensor",
-                            "temp" => "temp-sensor",
-                            "light" => "light",
-                            "ac" => "ac",
-                            "lock" => "lock",
-                            "cam" => "camera",
-                            "fan" => "fan",
-                            "motor" => "motor",
-                            _ => "unknown"
-                        };
-
-                        string targetRoom = roomAbbr switch
-                        {
-                            "ent" => "entrance",
-                            "liv" => "living",
-                            "kit" => "kitchen",
-                            "mbd" => "master-bedroom",
-                            "sbd" => "second-bedroom",
-                            "bat" => "bathroom",
-                            "din" => "dining",
-                            _ => "unknown"
-                        };
-
-                        var targetDevice = allDevices.FirstOrDefault(d =>
-                            d.TypeIdentifier == targetType && d.RoomIdentifier == targetRoom);
-
-                        if (targetDevice != null)
-                        {
-                            bool wasOnline = targetDevice.IsOn && targetDevice.StatusText != "Á¶ªÁ∫ø";
-
-                            if (statusData.IsOnline)
-                            {
-                                if (!wasOnline)
-                                {
-                                    targetDevice.IsOn = true;
-                                    targetDevice.StatusText = "Âú®Á∫ø";
-
-                                    if (targetDevice.TypeIdentifier == "temp-sensor" && targetDevice.Temperature.HasValue)
-                                    {
-                                        targetDevice.StatusText = $"Ê∏©Â∫¶ {targetDevice.Temperature.Value:F1}¬∞C";
-                                    }
-
-                                    await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, true, targetDevice.StatusText);
-                                    _logger.LogInformation($"ËÆæÂ§á {targetDevice.Name} Â∑≤‰∏äÁ∫ø");
-                                }
-                            }
-                            else
-                            {
-                                if (wasOnline || targetDevice.StatusText != "Á¶ªÁ∫ø")
-                                {
-                                    targetDevice.IsOn = false;
-                                    targetDevice.StatusText = "Á¶ªÁ∫ø";
-                                    await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, false, "Á¶ªÁ∫ø");
-                                    _logger.LogInformation($"ËÆæÂ§á {targetDevice.Name} Â∑≤Á¶ªÁ∫ø (Áä∂ÊÄÅÊ∂àÊÅØ)");
-                                }
-                            }
-
-                            if (statusData.BatteryLevel.HasValue)
-                            {
-                                await _deviceDataService.UpdateDeviceHumidityAsync(targetDevice.Id, statusData.BatteryLevel.Value);
-                                _logger.LogInformation($"ËÆæÂ§á {targetDevice.Name} ÁîµÈáè: {statusData.BatteryLevel}%");
-                            }
-
-                            if (targetDevice.TypeIdentifier == "temp-sensor" && statusData.CurrentValue != null)
-                            {
-                                try
-                                {
-                                    string currentValue = statusData.CurrentValue.ToString();
-                                    if (currentValue.Contains("¬∞C"))
-                                    {
-                                        double temp = double.Parse(currentValue.Replace("¬∞C", "").Trim());
-                                        await _deviceDataService.UpdateDeviceTemperatureAsync(targetDevice.Id, temp);
-                                        _logger.LogInformation($"Êõ¥Êñ∞Ê∏©Â∫¶‰º†ÊÑüÂô®: {targetDevice.Name} = {temp}¬∞C");
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogError(ex, "Ëß£ÊûêÊ∏©Â∫¶ÂÄºÂ§±Ë¥•");
-                                }
-                            }
-
-                            var updatedDevices = await _deviceDataService.GetAllDevicesAsync();
-                            await _hubContext.Clients.All.SendAsync("DevicesUpdated", updatedDevices);
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Â§ÑÁêÜÁä∂ÊÄÅÊ∂àÊÅØÂ§±Ë¥•");
-            }
-        }
-
-        private async Task HandleTelemetryAsync(TcpMessage message)
-        {
-            try
-            {
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                };
-
-                var telemetryData = JsonSerializer.Deserialize<TelemetryData>(message.Data.ToString()!, options);
-
-                _logger.LogInformation($"ËÆæÂ§á {message.DeviceId} ÈÅ•ÊµãÊï∞ÊçÆ:");
-                if (telemetryData?.TemperatureValue.HasValue == true)
-                    _logger.LogInformation($"  - Ê∏©Â∫¶: {telemetryData.TemperatureValue}¬∞C");
-                if (telemetryData?.HumidityValue.HasValue == true)
-                    _logger.LogInformation($"  - ÊπøÂ∫¶: {telemetryData.HumidityValue}%");
-                if (telemetryData?.BatteryLevel.HasValue == true)
-                    _logger.LogInformation($"  - ÁîµÈáè: {telemetryData.BatteryLevel}%");
-                if (telemetryData?.Power.HasValue == true)
-                    _logger.LogInformation($"  - ÂäüÁéá: {telemetryData.Power}W");
-                if (telemetryData?.IsOn.HasValue == true)
-                    _logger.LogInformation($"  - ÂºÄÂÖ≥: {telemetryData.IsOn}");
-                if (telemetryData?.Speed.HasValue == true)
-                    _logger.LogInformation($"  - È£éÈÄü: {telemetryData.Speed}Ê°£");
-                if (!string.IsNullOrEmpty(telemetryData?.Mode))
-                    _logger.LogInformation($"  - Ê®°Âºè: {telemetryData.Mode}");
-                if (telemetryData?.Temperature.HasValue == true)
-                    _logger.LogInformation($"  - ËÆæÂÆöÊ∏©Â∫¶: {telemetryData.Temperature}¬∞C");
-                if (!string.IsNullOrEmpty(telemetryData?.Direction))
-                    _logger.LogInformation($"  - ÊñπÂêë: {telemetryData.Direction}");
-
-                OnTelemetryReceived?.Invoke(this, telemetryData!);
-
-                var deviceIdParts = message.DeviceId?.Split('-');
-                if (deviceIdParts != null && deviceIdParts.Length == 3)
-                {
-                    bool dataUpdated = false;
-
-                    var typeAbbr = deviceIdParts[0];
-                    var roomAbbr = deviceIdParts[1];
-
-                    string targetType = typeAbbr switch
-                    {
-                        "hum" => "humidity-sensor",
-                        "temp" => "temp-sensor",
-                        "light" => "light",
-                        "ac" => "ac",
-                        "lock" => "lock",
-                        "cam" => "camera",
-                        "fan" => "fan",
-                        "motor" => "motor",
-                        _ => "unknown"
-                    };
-
-                    string targetRoom = roomAbbr switch
-                    {
-                        "ent" => "entrance",
-                        "liv" => "living",
-                        "kit" => "kitchen",
-                        "mbd" => "master-bedroom",
-                        "sbd" => "second-bedroom",
-                        "bat" => "bathroom",
-                        "din" => "dining",
-                        _ => "unknown"
-                    };
-
-                    var allDevices = await _deviceDataService.GetAllDevicesAsync();
-
-                    var targetDevice = allDevices.FirstOrDefault(d =>
-                        d.TypeIdentifier == targetType && d.RoomIdentifier == targetRoom);
-
-                    if (targetDevice != null)
-                    {
-                        _logger.LogInformation($"ÊúÄÁªàÂåπÈÖçÁöÑËÆæÂ§á: {targetDevice.Name} (ID: {targetDevice.Id})");
-
-                        switch (targetDevice.TypeIdentifier)
-                        {
-                            case "temp-sensor":
-                                if (telemetryData?.TemperatureValue.HasValue == true)
-                                {
-                                    await _deviceDataService.UpdateDeviceTemperatureAsync(targetDevice.Id, telemetryData.TemperatureValue.Value);
-                                    dataUpdated = true;
-                                    _logger.LogInformation($"Êõ¥Êñ∞Ê∏©Â∫¶‰º†ÊÑüÂô®: {targetDevice.Name} = {telemetryData.TemperatureValue}¬∞C");
-                                }
-                                if (telemetryData?.BatteryLevel.HasValue == true)
-                                {
-                                    await _deviceDataService.UpdateDeviceHumidityAsync(targetDevice.Id, telemetryData.BatteryLevel.Value);
-                                    dataUpdated = true;
-                                }
-                                break;
-
-                            case "humidity-sensor":
-                                if (telemetryData?.HumidityValue.HasValue == true)
-                                {
-                                    await _deviceDataService.UpdateDeviceHumidityAsync(targetDevice.Id, (int)Math.Round(telemetryData.HumidityValue.Value));
-                                    dataUpdated = true;
-                                    _logger.LogInformation($"Êõ¥Êñ∞ÊπøÂ∫¶‰º†ÊÑüÂô®: {targetDevice.Name} = {telemetryData.HumidityValue}%");
-                                }
-                                if (telemetryData?.BatteryLevel.HasValue == true)
-                                {
-                                    await _deviceDataService.UpdateDeviceHumidityAsync(targetDevice.Id, telemetryData.BatteryLevel.Value);
-                                    dataUpdated = true;
-                                }
-                                break;
-
-                            case "fan":
-                                if (telemetryData?.Speed.HasValue == true)
-                                {
-                                    await _deviceDataService.UpdateDeviceMotorSpeedAsync(targetDevice.Id, telemetryData.Speed.Value);
-                                    _logger.LogInformation($"Êõ¥Êñ∞È£éÊâáËΩ¨ÈÄü: {targetDevice.Name} = {telemetryData.Speed}Ê°£");
-                                    dataUpdated = true;
-                                }
-                                if (telemetryData?.IsOn.HasValue == true)
-                                {
-                                    targetDevice.IsOn = telemetryData.IsOn.Value;
-                                    targetDevice.StatusText = telemetryData.IsOn.Value ? $"È£éÈÄü {telemetryData.Speed ?? 3}Ê°£" : "ÂÖ≥Èó≠";
-                                    await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, telemetryData.IsOn.Value, targetDevice.StatusText);
-                                    dataUpdated = true;
-                                }
-                                if (telemetryData?.Power.HasValue == true)
-                                {
-                                    await _deviceDataService.UpdateDevicePowerAsync(targetDevice.Id, telemetryData.Power.Value);
-                                    dataUpdated = true;
-                                }
-                                break;
-
-                            case "motor":
-                                if (!string.IsNullOrEmpty(telemetryData?.Direction))
-                                {
-                                    await _deviceDataService.UpdateDeviceDirectionAsync(targetDevice.Id, telemetryData.Direction);
-                                    _logger.LogInformation($"Êõ¥Êñ∞ÁîµÊú∫ÊñπÂêë: {targetDevice.Name} = {telemetryData.Direction}");
-                                    dataUpdated = true;
-                                }
-                                if (telemetryData?.Speed.HasValue == true)
-                                {
-                                    await _deviceDataService.UpdateDeviceMotorSpeedAsync(targetDevice.Id, telemetryData.Speed.Value);
-                                    dataUpdated = true;
-                                }
-                                if (telemetryData?.Power.HasValue == true)
-                                {
-                                    await _deviceDataService.UpdateDevicePowerAsync(targetDevice.Id, telemetryData.Power.Value);
-                                    dataUpdated = true;
-                                }
-                                break;
-
-                            case "light":
-                                if (telemetryData?.IsOn.HasValue == true)
-                                {
-                                    targetDevice.IsOn = telemetryData.IsOn.Value;
-                                    targetDevice.StatusText = telemetryData.IsOn.Value ? "ÂºÄÂêØ" : "ÂÖ≥Èó≠";
-                                    await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, telemetryData.IsOn.Value, targetDevice.StatusText);
-                                    _logger.LogInformation($"Êõ¥Êñ∞ÁÅØÂÖâÁä∂ÊÄÅ: {targetDevice.Name} = {(telemetryData.IsOn.Value ? "ÂºÄÂêØ" : "ÂÖ≥Èó≠")}");
-                                    dataUpdated = true;
-                                }
-                                if (telemetryData?.Power.HasValue == true)
-                                {
-                                    await _deviceDataService.UpdateDevicePowerAsync(targetDevice.Id, telemetryData.Power.Value);
-                                    dataUpdated = true;
-                                }
-                                break;
-
-                            case "lock":
-                                if (telemetryData?.IsOn.HasValue == true)
-                                {
-                                    targetDevice.IsOn = telemetryData.IsOn.Value;
-                                    targetDevice.StatusText = telemetryData.IsOn.Value ? "Â∑≤‰∏äÈîÅ" : "Êú™‰∏äÈîÅ";
-                                    await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, telemetryData.IsOn.Value, targetDevice.StatusText);
-                                    _logger.LogInformation($"Êõ¥Êñ∞Èó®ÈîÅÁä∂ÊÄÅ: {targetDevice.Name} = {(telemetryData.IsOn.Value ? "Â∑≤‰∏äÈîÅ" : "Êú™‰∏äÈîÅ")}");
-                                    dataUpdated = true;
-                                }
-                                if (telemetryData?.BatteryLevel.HasValue == true)
-                                {
-                                    await _deviceDataService.UpdateDeviceHumidityAsync(targetDevice.Id, telemetryData.BatteryLevel.Value);
-                                    dataUpdated = true;
-                                }
-                                break;
-
-                            case "camera":
-                                if (telemetryData?.IsOn.HasValue == true)
-                                {
-                                    targetDevice.IsOn = telemetryData.IsOn.Value;
-                                    targetDevice.StatusText = telemetryData.IsOn.Value ? "Âú®Á∫ø" : "Á¶ªÁ∫ø";
-                                    await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, telemetryData.IsOn.Value, targetDevice.StatusText);
-                                    dataUpdated = true;
-                                }
-                                if (telemetryData?.Power.HasValue == true)
-                                {
-                                    await _deviceDataService.UpdateDevicePowerAsync(targetDevice.Id, telemetryData.Power.Value);
-                                    dataUpdated = true;
-                                }
-                                break;
-
-                            case "ac":
-                                if (telemetryData?.Mode != null)
-                                {
-                                    await _deviceDataService.UpdateDeviceModeAsync(targetDevice.Id, telemetryData.Mode);
-                                    dataUpdated = true;
-                                }
-                                if (telemetryData?.Temperature.HasValue == true)
-                                {
-                                    await _deviceDataService.UpdateDeviceAcTemperatureAsync(targetDevice.Id, telemetryData.Temperature.Value);
-                                    dataUpdated = true;
-                                }
-                                if (telemetryData?.IsOn.HasValue == true)
-                                {
-                                    targetDevice.IsOn = telemetryData.IsOn.Value;
-                                    if (telemetryData.IsOn.Value)
-                                    {
-                                        string modeText = telemetryData.Mode switch
-                                        {
-                                            "cool" => "Âà∂ÂÜ∑",
-                                            "heat" => "Âà∂ÁÉ≠",
-                                            "fan" => "ÈÄÅÈ£é",
-                                            "dry" => "Èô§Êπø",
-                                            "auto" => "Ëá™Âä®",
-                                            _ => telemetryData.Mode ?? "Âà∂ÂÜ∑"
-                                        };
-                                        targetDevice.StatusText = $"{modeText} {telemetryData.Temperature ?? 23}¬∞C";
-                                    }
-                                    else
-                                    {
-                                        targetDevice.StatusText = "ÂÖ≥Èó≠";
-                                    }
-                                    await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, telemetryData.IsOn.Value, targetDevice.StatusText);
-                                    dataUpdated = true;
-                                }
-                                if (telemetryData?.Power.HasValue == true)
-                                {
-                                    await _deviceDataService.UpdateDevicePowerAsync(targetDevice.Id, telemetryData.Power.Value);
-                                    dataUpdated = true;
-                                }
-                                break;
-                        }
-                    }
-
-                    if (dataUpdated)
-                    {
-                        var devices = await _deviceDataService.GetAllDevicesAsync();
-                        await _hubContext.Clients.All.SendAsync("DevicesUpdated", devices);
-
-                        if (telemetryData != null)
-                        {
-                            await _hubContext.Clients.Group(message.DeviceId).SendAsync(
-                                "TelemetryUpdated",
-                                message.DeviceId,
-                                telemetryData
-                            );
-
-                            _logger.LogInformation($"Â∑≤ÈÄöËøáSignalRÈÄöÁü•ÂâçÁ´ØÊõ¥Êñ∞ËÆæÂ§á {message.DeviceId} ÁöÑÊï∞ÊçÆ");
-                        }
-                    }
-                }
-                else
-                {
-                    _logger.LogWarning($"ËÆæÂ§áIDÊ†ºÂºèÊó†Êïà: {message.DeviceId}");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Â§ÑÁêÜÈÅ•ÊµãÊï∞ÊçÆÂ§±Ë¥•");
-            }
-        }
-
-        private async Task HandleCommandResponseAsync(TcpMessage message)
-        {
-            try
-            {
-                var responseData = JsonSerializer.Deserialize<CommandResponseData>(message.Data.ToString()!);
-                _logger.LogInformation($"ËÆæÂ§á {message.DeviceId} ÂëΩ‰ª§ÂìçÂ∫î: ÊàêÂäü={responseData?.Success}, ÂëΩ‰ª§ID={responseData?.CommandId}");
-                if (responseData?.Error != null)
-                {
-                    _logger.LogWarning($"ÂëΩ‰ª§ÈîôËØØ: {responseData.Error}");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Â§ÑÁêÜÂëΩ‰ª§ÂìçÂ∫îÂ§±Ë¥•");
-            }
-        }
-
-        private async Task HandleEventAsync(TcpMessage message)
-        {
-            try
-            {
-                var eventData = JsonSerializer.Deserialize<EventData>(message.Data.ToString()!);
-                _logger.LogInformation($"ËÆæÂ§á {message.DeviceId} ‰∫ã‰ª∂: {eventData?.EventType}, Á∫ßÂà´={eventData?.Severity}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Â§ÑÁêÜ‰∫ã‰ª∂Ê∂àÊÅØÂ§±Ë¥•");
-            }
-        }
-
-        private async Task HandleDisconnectAsync(TcpMessage message)
-        {
-            try
-            {
-                var disconnectData = JsonSerializer.Deserialize<DisconnectData>(message.Data.ToString()!);
-                _logger.LogInformation($"ËÆæÂ§á {message.DeviceId} Êñ≠ÂºÄËøûÊé•: {disconnectData?.Reason}, ‰ª£Á†Å={disconnectData?.Code}");
-
-                await HandleClientDisconnectAsync(message.DeviceId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Â§ÑÁêÜÊñ≠ÂºÄËøûÊé•Ê∂àÊÅØÂ§±Ë¥•");
-            }
-        }
-
-        private async Task HandleClientDisconnectAsync(string deviceId)
-        {
-            if (_connectedClients.ContainsKey(deviceId))
-            {
-                var clientInfo = _connectedClients[deviceId];
-
-                var tcpDevice = new TcpDevice
-                {
-                    DeviceId = deviceId,
-                    DeviceName = clientInfo.DeviceName,
-                    DeviceType = clientInfo.DeviceType,
-                    IpAddress = clientInfo.IpAddress,
-                    LastSeen = DateTime.Now,
-                    IsOnline = false
-                };
-
-                OnDeviceDisconnected?.Invoke(this, tcpDevice);
-
-                lock (_connectedClients)
-                {
-                    _connectedClients.Remove(deviceId);
-                }
-
-                _logger.LogInformation($"ËÆæÂ§á {deviceId} Â∑≤‰∏ªÂä®Êñ≠ÂºÄËøûÊé•");
-
-                var allDevices = await _deviceDataService.GetAllDevicesAsync();
-                var deviceIdParts = deviceId?.Split('-');
-
-                if (deviceIdParts != null && deviceIdParts.Length == 3)
-                {
-                    var typeAbbr = deviceIdParts[0];
-                    var roomAbbr = deviceIdParts[1];
-
-                    string targetType = typeAbbr switch
-                    {
-                        "hum" => "humidity-sensor",
-                        "temp" => "temp-sensor",
-                        "light" => "light",
-                        "ac" => "ac",
-                        "lock" => "lock",
-                        "cam" => "camera",
-                        "fan" => "fan",
-                        "motor" => "motor",
-                        _ => "unknown"
-                    };
-
-                    string targetRoom = roomAbbr switch
-                    {
-                        "ent" => "entrance",
-                        "liv" => "living",
-                        "kit" => "kitchen",
-                        "mbd" => "master-bedroom",
-                        "sbd" => "second-bedroom",
-                        "bat" => "bathroom",
-                        "din" => "dining",
-                        _ => "unknown"
-                    };
-
-                    var targetDevice = allDevices.FirstOrDefault(d =>
-                        d.TypeIdentifier == targetType && d.RoomIdentifier == targetRoom);
-
-                    if (targetDevice != null)
-                    {
-                        targetDevice.IsOn = false;
-                        targetDevice.StatusText = "Á¶ªÁ∫ø";
-                        await _deviceDataService.UpdateDeviceStatusAsync(targetDevice.Id, false, "Á¶ªÁ∫ø");
-                        _logger.LogInformation($"Â∑≤Êõ¥Êñ∞ËÆæÂ§á {targetDevice.Name} Áä∂ÊÄÅ‰∏∫Á¶ªÁ∫ø");
-                    }
-                }
-
-                var updatedDevices = await _deviceDataService.GetAllDevicesAsync();
-                await _hubContext.Clients.All.SendAsync("DevicesUpdated", updatedDevices);
-            }
-        }
-
-        // ==================== ÂëΩ‰ª§ÂèëÈÄÅ ====================
-
-        public async Task SendCommandAsync(string deviceId, string command, Dictionary<string, object>? parameters = null)
-        {
-            if (!_connectedClients.ContainsKey(deviceId))
-            {
-                throw new Exception($"ËÆæÂ§á {deviceId} ‰∏çÂú®Á∫ø");
-            }
-
-            var commandData = new CommandData
-            {
-                CommandId = $"cmd-{DateTime.Now.Ticks}",
-                Command = command,
-                Parameters = parameters ?? new(),
-                Source = "server"
-            };
-
-            var message = new TcpMessage
-            {
-                MessageId = commandData.CommandId,
-                Type = "command",
-                DeviceId = deviceId,
-                Data = commandData
-            };
-
-            await SendToClientAsync(deviceId, message);
-            _logger.LogInformation($"ÂèëÈÄÅÂëΩ‰ª§Âà∞ËÆæÂ§á {deviceId}: {command}");
-        }
-
-        private async Task SendToClientAsync(string deviceId, TcpMessage message)
-        {
-            TcpClientInfo? clientInfo = null;
-
-            lock (_connectedClients)
-            {
-                if (_connectedClients.ContainsKey(deviceId))
-                {
-                    clientInfo = _connectedClients[deviceId];
-                }
-            }
-
-            if (clientInfo == null)
-            {
-                throw new Exception($"ËÆæÂ§á {deviceId} ‰∏çÂú®Á∫ø");
-            }
-
-            if (clientInfo.Client == null || !clientInfo.Client.Connected)
-            {
-                _logger.LogWarning($"ËÆæÂ§á {deviceId} Ê≤°ÊúâÊ¥ªÂä®ÁöÑTCPËøûÊé•ÔºåÊó†Ê≥ïÂèëÈÄÅÊ∂àÊÅØ");
-                return;
-            }
-
-            var json = JsonSerializer.Serialize(message);
-            var data = Encoding.UTF8.GetBytes(json + "\n");
-
-            try
-            {
-                await clientInfo.Stream.WriteAsync(data, 0, data.Length);
-                await clientInfo.Stream.FlushAsync();
-                _logger.LogDebug($"ÂèëÈÄÅÊ∂àÊÅØÂà∞ËÆæÂ§á {deviceId}: {message.Type}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"ÂèëÈÄÅÊ∂àÊÅØÂà∞ËÆæÂ§á {deviceId} Â§±Ë¥•");
-                throw;
-            }
-        }
-
-        // ==================== ËÆæÂ§áÊü•ËØ¢ ====================
-
-        public List<TcpDevice> GetAllDevices()
-        {
-            var devices = new List<TcpDevice>();
-
-            lock (_connectedClients)
-            {
-                foreach (var c in _connectedClients.Values)
-                {
-                    devices.Add(new TcpDevice
-                    {
-                        DeviceId = c.DeviceId ?? "",
-                        DeviceName = c.DeviceName,
-                        DeviceType = c.DeviceType,
-                        IpAddress = c.IpAddress,
-                        Port = c.Port,
-                        LastSeen = c.LastSeen,
-                        IsOnline = true,
-                        Properties = new Dictionary<string, object>
-                        {
-                            ["connectedTime"] = c.ConnectedTime,
-                            ["lastHeartbeat"] = c.LastHeartbeat
-                        }
-                    });
-                }
-            }
-
-            return devices;
-        }
-
-        public TcpDevice? GetDevice(string deviceId)
-        {
-            lock (_connectedClients)
-            {
-                if (_connectedClients.ContainsKey(deviceId))
-                {
-                    var c = _connectedClients[deviceId];
-                    return new TcpDevice
-                    {
-                        DeviceId = c.DeviceId ?? "",
-                        DeviceName = c.DeviceName,
-                        DeviceType = c.DeviceType,
-                        IpAddress = c.IpAddress,
-                        Port = c.Port,
-                        LastSeen = c.LastSeen,
-                        IsOnline = true,
-                        Properties = new Dictionary<string, object>
-                        {
-                            ["connectedTime"] = c.ConnectedTime,
-                            ["lastHeartbeat"] = c.LastHeartbeat
-                        }
-                    };
-                }
-            }
-            return null;
-        }
-
-        // ==================== ÂÜÖÈÉ®Á±ª ====================
-
-        private class TcpClientInfo
+        public class TcpClientInfo
         {
             public TcpClient? Client { get; set; }
             public NetworkStream? Stream { get; set; }

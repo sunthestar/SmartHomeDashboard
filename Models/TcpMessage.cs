@@ -104,7 +104,6 @@ namespace SmartHomeDashboard.Models
     public class BaseDeviceState
     {
         public bool IsOnline { get; set; }
-        public double? Power { get; set; }  // 功率(W)
     }
 
     /// <summary>
@@ -112,7 +111,7 @@ namespace SmartHomeDashboard.Models
     /// </summary>
     public class SwitchDeviceState : BaseDeviceState
     {
-        public bool IsOn { get; set; }  // 开启/关闭
+        public bool IsOn { get; set; }
     }
 
     /// <summary>
@@ -121,7 +120,7 @@ namespace SmartHomeDashboard.Models
     public class FanDeviceState : BaseDeviceState
     {
         public bool IsOn { get; set; }
-        public int Speed { get; set; }  // 1-5档
+        public int Speed { get; set; }
     }
 
     /// <summary>
@@ -130,12 +129,12 @@ namespace SmartHomeDashboard.Models
     public class AirConditionerState : BaseDeviceState
     {
         public bool IsOn { get; set; }
-        public string Mode { get; set; } = "cool";  // cool, heat, dry
-        public double Temperature { get; set; } = 24.0;  // 温度
-        public bool SwingVertical { get; set; }  // 上下扫风
-        public bool SwingHorizontal { get; set; }  // 左右扫风
-        public bool Light { get; set; }  // 灯光
-        public bool Quiet { get; set; }  // 静音
+        public string Mode { get; set; } = "cool";
+        public double Temperature { get; set; } = 24.0;
+        public bool SwingVertical { get; set; }
+        public bool SwingHorizontal { get; set; }
+        public bool Light { get; set; }
+        public bool Quiet { get; set; }
     }
 
     /// <summary>
@@ -143,7 +142,7 @@ namespace SmartHomeDashboard.Models
     /// </summary>
     public class TemperatureSensorState : BaseDeviceState
     {
-        public double Temperature { get; set; }  // 温度值
+        public double Temperature { get; set; }
     }
 
     /// <summary>
@@ -151,7 +150,7 @@ namespace SmartHomeDashboard.Models
     /// </summary>
     public class HumiditySensorState : BaseDeviceState
     {
-        public double Humidity { get; set; }  // 湿度值
+        public double Humidity { get; set; }
     }
 
     /// <summary>
@@ -159,7 +158,7 @@ namespace SmartHomeDashboard.Models
     /// </summary>
     public class MotorState : BaseDeviceState
     {
-        public string Direction { get; set; } = "stop";  // forward, reverse, stop
+        public string Direction { get; set; } = "stop";
         public bool IsRunning => Direction != "stop";
     }
 
@@ -175,7 +174,6 @@ namespace SmartHomeDashboard.Models
 
         // 基础设备属性
         public bool? IsOnline { get; set; }
-        public double? Power { get; set; }
         public int? BatteryLevel { get; set; }
 
         // 开关设备属性
@@ -193,22 +191,35 @@ namespace SmartHomeDashboard.Models
         public bool? Quiet { get; set; }
 
         // 传感器属性
-        public double? TemperatureValue { get; set; }  // 温度传感器
-        public double? HumidityValue { get; set; }     // 湿度传感器
+        public double? TemperatureValue { get; set; }
+        public double? HumidityValue { get; set; }
 
         // 电机属性
         public string? Direction { get; set; }
 
-        // 辅助方法：根据设备类型设置对应的属性
+        // ========== 以下是新增的摄像头专用属性 ==========
+        /// <summary>是否录制中</summary>
+        public bool? IsRecording { get; set; }
+
+        /// <summary>移动侦测</summary>
+        public bool? MotionDetected { get; set; }
+
+        /// <summary>夜视模式: auto, on, off</summary>
+        public string? NightMode { get; set; }
+
         public void SetValueForDeviceType(string deviceType, object value)
         {
             switch (deviceType.ToLower())
             {
                 case "light":
                 case "lock":
-                case "camera":
                     if (value is bool boolValue)
                         IsOn = boolValue;
+                    break;
+
+                case "camera":
+                    if (value is bool camBoolValue)
+                        IsOn = camBoolValue;
                     break;
 
                 case "fan":
@@ -223,10 +234,6 @@ namespace SmartHomeDashboard.Models
                         Mode = strValue;
                     else if (value is double dblValue)
                         Temperature = dblValue;
-                    else if (value is bool blValue)
-                    {
-                        // 需要根据上下文判断是哪个布尔属性
-                    }
                     break;
 
                 case "temp-sensor":
@@ -289,13 +296,13 @@ namespace SmartHomeDashboard.Models
         public bool IsOnline { get; set; }
         public Dictionary<string, object> Properties { get; set; } = new();
 
-        // 根据设备类型动态获取状态
         public object? GetState(TelemetryData telemetry)
         {
             return DeviceType switch
             {
-                "light" or "lock" or "camera" => new { IsOn = telemetry.IsOn, Power = telemetry.Power },
-                "fan" => new { IsOn = telemetry.IsOn, Speed = telemetry.Speed, Power = telemetry.Power },
+                "light" or "lock" => new { IsOn = telemetry.IsOn },
+                "camera" => new { IsOn = telemetry.IsOn, MotionDetected = telemetry.MotionDetected, IsRecording = telemetry.IsRecording, NightMode = telemetry.NightMode },
+                "fan" => new { IsOn = telemetry.IsOn, Speed = telemetry.Speed },
                 "ac" => new
                 {
                     IsOn = telemetry.IsOn,
@@ -304,12 +311,11 @@ namespace SmartHomeDashboard.Models
                     SwingVertical = telemetry.SwingVertical,
                     SwingHorizontal = telemetry.SwingHorizontal,
                     Light = telemetry.Light,
-                    Quiet = telemetry.Quiet,
-                    Power = telemetry.Power
+                    Quiet = telemetry.Quiet
                 },
                 "temp-sensor" => new { Temperature = telemetry.TemperatureValue, BatteryLevel = telemetry.BatteryLevel },
                 "humidity-sensor" => new { Humidity = telemetry.HumidityValue, BatteryLevel = telemetry.BatteryLevel },
-                "motor" => new { Direction = telemetry.Direction, Power = telemetry.Power },
+                "motor" => new { Direction = telemetry.Direction },
                 _ => telemetry
             };
         }
