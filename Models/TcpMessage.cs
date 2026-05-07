@@ -214,6 +214,14 @@ namespace SmartHomeDashboard.Models
         /// <summary>夜视模式: auto, on, off</summary>
         public string? NightMode { get; set; }
 
+        // ========== 空调额外属性 ==========
+        /// <summary>空调风速: low, medium, high, auto</summary>
+        public string? FanSpeed { get; set; }
+
+        // ========== 功率属性 ==========
+        /// <summary>当前功率 (瓦特)</summary>
+        public double? Power { get; set; }
+
         public void SetValueForDeviceType(string deviceType, object value)
         {
             switch (deviceType.ToLower())
@@ -235,6 +243,12 @@ namespace SmartHomeDashboard.Models
                 case "camera":
                     if (value is bool camBoolValue)
                         IsOn = camBoolValue;
+                    else if (value is bool recordingValue)
+                        IsRecording = recordingValue;
+                    else if (value is bool motionValue)
+                        MotionDetected = motionValue;
+                    else if (value is string nightModeValue)
+                        NightMode = nightModeValue;
                     break;
 
                 case "fan":
@@ -249,6 +263,8 @@ namespace SmartHomeDashboard.Models
                         Mode = strValue;
                     else if (value is double dblValue)
                         Temperature = dblValue;
+                    else if (value is string fanSpeedValue)
+                        FanSpeed = fanSpeedValue;
                     break;
 
                 case "temp-sensor":
@@ -264,6 +280,8 @@ namespace SmartHomeDashboard.Models
                 case "motor":
                     if (value is string dirValue)
                         Direction = dirValue;
+                    else if (value is int speedValue)
+                        Speed = speedValue;
                     break;
             }
         }
@@ -327,11 +345,12 @@ namespace SmartHomeDashboard.Models
                     SwingVertical = telemetry.SwingVertical,
                     SwingHorizontal = telemetry.SwingHorizontal,
                     Light = telemetry.Light,
-                    Quiet = telemetry.Quiet
+                    Quiet = telemetry.Quiet,
+                    FanSpeed = telemetry.FanSpeed
                 },
                 "temp-sensor" => new { Temperature = telemetry.TemperatureValue, BatteryLevel = telemetry.BatteryLevel },
                 "humidity-sensor" => new { Humidity = telemetry.HumidityValue, BatteryLevel = telemetry.BatteryLevel },
-                "motor" => new { Direction = telemetry.Direction },
+                "motor" => new { Direction = telemetry.Direction, Speed = telemetry.Speed },
                 _ => telemetry
             };
         }

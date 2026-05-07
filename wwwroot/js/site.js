@@ -87,6 +87,7 @@ function getDirectionText(direction) {
 }
 
 function escapeHtml(text) {
+    if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
@@ -188,7 +189,6 @@ function updateDeviceCard(card, device) {
                         statusText.textContent = device.isOn ? "已上锁" : "未上锁";
                         break;
                     case 'camera':
-                        // 摄像头在线时显示开启/关闭状态
                         statusText.textContent = device.isOn ? "开启" : "关闭";
                         break;
                     case 'motor':
@@ -367,14 +367,13 @@ function updateDeviceOnlineStatus(card, isOnline) {
         if (deleteIcon) {
             deleteIcon.style.opacity = '1';
             deleteIcon.style.pointerEvents = 'auto';
+            deleteIcon.style.cursor = 'pointer';
         }
         const offlineIcon = statusElement?.querySelector('.fa-power-off');
         if (offlineIcon) offlineIcon.remove();
 
-        // 摄像头在线时，不自动修改状态文本，保持原有状态（开启/关闭）
         if (deviceType !== 'camera') {
             if (statusText && statusText.textContent === "离线") {
-                // 根据设备类型设置默认状态
                 if (deviceType === 'light') {
                     statusText.textContent = "关闭";
                 } else {
@@ -386,11 +385,11 @@ function updateDeviceOnlineStatus(card, isOnline) {
         card.classList.add('offline');
         const deleteIcon = card.querySelector('.delete-device');
         if (deleteIcon) {
-            deleteIcon.style.opacity = '0.3';
-            deleteIcon.style.pointerEvents = 'none';
+            deleteIcon.style.opacity = '0.7';
+            deleteIcon.style.pointerEvents = 'auto';
+            deleteIcon.style.cursor = 'pointer';
         }
 
-        // 所有设备离线时都显示"离线"（包括摄像头）
         if (statusText && statusText.textContent !== "离线") {
             statusText.textContent = "离线";
         }
@@ -404,7 +403,6 @@ function updateDeviceOnlineStatus(card, isOnline) {
         const greenDot = statusElement?.querySelector('.fa-circle');
         if (greenDot) greenDot.remove();
 
-        // 移除在线状态类
         statusElement?.classList.remove('on');
     }
 }
@@ -604,12 +602,10 @@ function updateDeviceFromTelemetry(deviceId, telemetry) {
     deviceCards.forEach(card => {
         const fullId = card.dataset.fullId;
         if (fullId === deviceId) {
-            // 优先处理在线状态
             if (telemetry.isOnline !== undefined) {
                 updateDeviceOnlineStatus(card, telemetry.isOnline);
             }
 
-            // 处理开关状态（仅在在线时生效）
             if (telemetry.isOn !== undefined) {
                 const isOnline = telemetry.isOnline !== undefined ? telemetry.isOnline : !card.classList.contains('offline');
                 if (isOnline) {
@@ -757,6 +753,159 @@ function updateDeviceStats() {
     }
 }
 
+// ==================== 创建设备卡片HTML ====================
+function createDeviceCardHtml(device) {
+    const isOffline = device.statusText === "离线";
+    const isOn = device.isOn && !isOffline;
+    const deviceType = device.typeIdentifier;
+
+    let statusTextValue = "";
+    if (isOffline) {
+        statusTextValue = "离线";
+    } else {
+        switch (deviceType) {
+            case 'temp-sensor':
+                var temp = device.temperatureValue || device.temperature;
+                statusTextValue = temp ? `温度 ${parseFloat(temp).toFixed(1)}°C` : "--";
+                break;
+            case 'humidity-sensor':
+                var hum = device.humidityValue || device.temperature;
+                statusTextValue = hum ? `湿度 ${Math.round(hum)}%` : "--";
+                break;
+            case 'light':
+                statusTextValue = isOn ? "开启" : "关闭";
+                break;
+            case 'ac':
+                if (isOn) {
+                    const modeText = getModeText(device.acMode || device.mode);
+                    const temp = device.acTemperature || device.temperature || 24;
+                    statusTextValue = `${modeText} ${temp}°C`;
+                } else {
+                    statusTextValue = "关闭";
+                }
+                break;
+            case 'fan':
+                if (isOn) {
+                    const speed = device.fanSpeed || device.motorSpeed || 3;
+                    statusTextValue = `风速 ${speed}档`;
+                } else {
+                    statusTextValue = "关闭";
+                }
+                break;
+            case 'lock':
+                statusTextValue = isOn ? "已上锁" : "未上锁";
+                break;
+            case 'camera':
+                statusTextValue = isOn ? "开启" : "关闭";
+                break;
+            case 'motor':
+                if (isOn) {
+                    const direction = device.motorDirection || device.direction || "stop";
+                    const speed = device.motorSpeed || 0;
+                    if (speed > 0) {
+                        statusTextValue = `${getDirectionText(direction)} ${speed}rpm`;
+                    } else {
+                        statusTextValue = getDirectionText(direction);
+                    }
+                } else {
+                    statusTextValue = "停止";
+                }
+                break;
+            default:
+                statusTextValue = isOn ? "开启" : "关闭";
+                break;
+        }
+    }
+
+    let detailText = "";
+    if (isOffline) {
+        detailText = "设备离线";
+    } else {
+        switch (deviceType) {
+            case 'lock':
+                var battery = device.batteryLevel || device.humidity;
+                detailText = battery ? `电量 ${battery}%` : (device.detail || "");
+                break;
+            case 'camera':
+                detailText = "摄像头 · 在线";
+                break;
+            case 'temp-sensor':
+                var battery = device.batteryLevel || device.humidity;
+                detailText = battery ? `温度传感器 · 电量 ${battery}%` : "温度传感器 · 在线";
+                break;
+            case 'humidity-sensor':
+                var battery = device.batteryLevel || device.humidity;
+                detailText = battery ? `湿度传感器 · 电量 ${battery}%` : "湿度传感器 · 在线";
+                break;
+            default:
+                detailText = device.detail || "";
+                break;
+        }
+    }
+
+    let powerHtml = "";
+    const batteryDevices = ['temp-sensor', 'humidity-sensor', 'lock', 'camera'];
+    if (batteryDevices.includes(deviceType)) {
+        var batteryLevel = device.batteryLevel || device.humidity;
+        if (batteryLevel) {
+            const batteryIcon = batteryLevel >= 75 ? 'fa-battery-full' :
+                batteryLevel >= 50 ? 'fa-battery-three-quarters' :
+                    batteryLevel >= 25 ? 'fa-battery-half' :
+                        batteryLevel >= 10 ? 'fa-battery-quarter' : 'fa-battery-empty';
+            const batteryColor = batteryLevel <= 15 ? '#f44336' :
+                batteryLevel <= 30 ? '#ff9800' : '#4caf50';
+            powerHtml = `<i class="fas ${batteryIcon}" style="color: ${batteryColor};" title="电量 ${batteryLevel}%"></i>`;
+        } else {
+            powerHtml = device.power || '0W';
+        }
+    } else {
+        if (device.powerValue >= 1) {
+            powerHtml = device.powerValue.toFixed(2) + 'kW';
+        } else if (device.powerValue > 0) {
+            powerHtml = Math.round(device.powerValue * 1000) + 'W';
+        } else {
+            powerHtml = device.power || '0W';
+        }
+    }
+
+    const statusIcon = (isOn && !isOffline) ? '<i class="fas fa-circle" style="font-size:0.5rem; margin-right:5px; color:#2ecc71;"></i>' : '';
+    const offlineIcon = isOffline ? '<i class="fas fa-power-off" style="font-size:0.8rem; margin-right:5px; color:#ff6b6b;"></i>' : '';
+
+    return `
+        <div class="device-item ${isOffline ? 'offline' : ''}" 
+             data-id="${device.id}"
+             data-full-id="${device.fullDeviceId}"
+             data-room="${device.roomIdentifier}"
+             data-type="${device.typeIdentifier}"
+             data-power="${device.powerValue}"
+             style="cursor: pointer;"
+             title="点击设置">
+            <div class="device-row">
+                <div class="device-name">
+                    <i class="fas ${device.icon}"></i>
+                    <span>${escapeHtml(device.name)}</span>
+                    <span class="device-number-badge" style="font-size:0.7rem; color:#666; margin-left:5px;">#${device.deviceNumber}</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <div class="device-status ${(isOn && !isOffline) ? 'on' : ''}">
+                        ${statusIcon}
+                        ${offlineIcon}
+                        <span class="status-text">${escapeHtml(statusTextValue)}</span>
+                    </div>
+                    <i class="fas fa-trash-alt delete-device" style="color: #ff6b6b; cursor: pointer; font-size: 1rem;" title="删除设备"></i>
+                </div>
+            </div>
+            <div class="device-detail">
+                <span class="device-detail-text">${escapeHtml(detailText)}</span>
+                <span class="device-power" data-power-value="${device.powerValue}">${powerHtml}</span>
+            </div>
+            <div class="progress-bg">
+                <div class="progress-fill" style="width: ${device.progress}%;${device.progressColor ? ' background:' + device.progressColor : ''}"></div>
+            </div>
+        </div>
+    `;
+}
+
 // ==================== 设备增量更新 ====================
 function updateDevicesIncremental(devices) {
     const currentCards = document.querySelectorAll('.device-item');
@@ -785,7 +934,30 @@ function updateDevicesIncremental(devices) {
     });
 
     if (newDevices.length > 0) {
-        showNotification(`发现 ${newDevices.length} 个新设备，请刷新页面查看`, 'info');
+        console.log(`发现 ${newDevices.length} 个新设备，动态添加中...`);
+        const deviceGrid = document.getElementById('deviceGrid');
+        if (deviceGrid) {
+            newDevices.forEach(device => {
+                if (document.querySelector(`.device-item[data-id="${device.id}"]`)) {
+                    return;
+                }
+                const deviceCard = createDeviceCardHtml(device);
+                if (deviceCard) {
+                    deviceGrid.insertAdjacentHTML('beforeend', deviceCard);
+                    const newCard = deviceGrid.lastElementChild;
+                    if (newCard) {
+                        newCard.style.opacity = '0';
+                        newCard.style.transform = 'scale(0.8)';
+                        setTimeout(() => {
+                            newCard.style.transition = 'all 0.3s ease';
+                            newCard.style.opacity = '1';
+                            newCard.style.transform = 'scale(1)';
+                        }, 10);
+                    }
+                }
+            });
+        }
+        showNotification(`发现 ${newDevices.length} 个新设备，已自动添加`, 'success');
     }
 
     devices.forEach(device => {
@@ -794,6 +966,7 @@ function updateDevicesIncremental(devices) {
             updateDeviceCard(card, device);
         }
     });
+
     updateDeviceStats();
     calculateTotalPower();
     calculateAverageRoomTemp();
@@ -871,13 +1044,15 @@ function deviceClickHandler(e) {
     const card = e.target.closest('.device-item');
     if (!card) return;
 
+    // 点击删除按钮时，不打开设置
     if (e.target.closest('.delete-device')) {
         console.log('点击删除按钮，不打开设置');
         return;
     }
 
+    // 离线设备只能删除，不能打开设置详情
     if (card.classList.contains('offline')) {
-        showNotification('设备已离线，无法设置', 'warning');
+        showNotification('设备已离线，无法设置，如需删除请点击删除按钮', 'warning');
         return;
     }
 
@@ -926,7 +1101,6 @@ function openDeviceSettings(deviceId, deviceName, deviceType) {
     let temperature = 0, humidity = 0, speed = 0, mode = 'cool', direction = 'stop', powerValue = 0;
     let batteryLevel = null;
 
-    // 获取电量（从 powerSpan 的电池图标或 statusElement 的 data 属性）
     const powerSpan = deviceCard.querySelector('.device-power');
     if (powerSpan) {
         const batteryIcon = powerSpan.querySelector('i');
@@ -1088,7 +1262,6 @@ function initLockSettings(deviceId, isOn, batteryLevel) {
     const toggle = document.getElementById('lockToggle');
     const status = document.getElementById('lockStatus');
 
-    // 显示电量
     const batteryFill = document.getElementById('lockBatteryFill');
     const batteryText = document.getElementById('lockBatteryLevel');
     if (batteryFill && batteryText && batteryLevel !== undefined && batteryLevel !== null && batteryLevel > 0) {
@@ -1143,7 +1316,6 @@ function initCameraSettings(deviceId, isOn, batteryLevel) {
     const toggle = document.getElementById('cameraPowerToggle');
     const status = document.getElementById('cameraPowerStatus');
 
-    // 显示电量
     const batteryFill = document.getElementById('cameraBatteryFill');
     const batteryText = document.getElementById('cameraBatteryLevel');
     if (batteryFill && batteryText && batteryLevel !== undefined && batteryLevel !== null && batteryLevel > 0) {
@@ -1199,7 +1371,6 @@ function initTempSensorSettings(temperature, batteryLevel) {
         tempDisplay.textContent = temperature ? temperature.toFixed(1) : '--';
     }
 
-    // 显示电量
     const batteryFill = document.getElementById('tempBatteryFill');
     const batteryText = document.getElementById('tempBatteryLevel');
     if (batteryFill && batteryText && batteryLevel !== undefined && batteryLevel !== null && batteryLevel > 0) {
@@ -1223,7 +1394,6 @@ function initHumiditySensorSettings(humidity, batteryLevel) {
         humidityDisplay.textContent = humidity || '--';
     }
 
-    // 显示电量
     const batteryFill = document.getElementById('humidityBatteryFill');
     const batteryText = document.getElementById('humidityBatteryLevel');
     if (batteryFill && batteryText && batteryLevel !== undefined && batteryLevel !== null && batteryLevel > 0) {
@@ -1581,7 +1751,6 @@ function initSignalR() {
     signalRConnection.start()
         .then(() => {
             console.log("SignalR 连接成功");
-            showNotification('实时连接成功', 'success');
             refreshDeviceListFromServer();
         })
         .catch(err => {
