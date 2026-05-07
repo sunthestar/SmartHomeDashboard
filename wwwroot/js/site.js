@@ -132,12 +132,10 @@ function updateDeviceCard(card, device) {
         statusElement.dataset.batteryLevel = device.batteryLevel;
         statusElement.dataset.acTemperature = device.acTemperature;
         statusElement.dataset.acMode = device.acMode;
-        statusElement.dataset.acFanSpeed = device.acFanSpeed;
         statusElement.dataset.fanSpeed = device.fanSpeed;
         statusElement.dataset.motorSpeed = device.motorSpeed;
         statusElement.dataset.motorDirection = device.motorDirection;
         statusElement.dataset.brightness = device.brightness;
-        statusElement.dataset.colorTemperature = device.colorTemperature;
 
         statusElement.dataset.temperature = device.temperature;
         statusElement.dataset.humidity = device.humidity;
@@ -145,18 +143,16 @@ function updateDeviceCard(card, device) {
         statusElement.dataset.direction = device.direction;
         statusElement.dataset.speed = device.motorSpeed;
 
-        const isOn = device.isOn && device.statusText !== "离线";
+        // 判断设备是否在线：不是离线状态
+        const isOnline = device.statusText !== "离线";
+        const isOn = device.isOn && isOnline;
 
-        // 对于摄像头，isOn 表示开关状态（开启/关闭），在线状态单独处理
-        if (device.typeIdentifier === 'camera') {
-            updateCameraPowerStatus(card, isOn);
-        } else {
-            updateDevicePowerStatus(card, isOn);
-        }
+        updateDevicePowerStatus(card, isOn);
+        updateDeviceOnlineStatus(card, isOnline);
 
         const statusText = statusElement.querySelector('.status-text');
         if (statusText) {
-            if (device.statusText === "离线") {
+            if (!isOnline) {
                 statusText.textContent = "离线";
             } else {
                 switch (device.typeIdentifier) {
@@ -192,7 +188,7 @@ function updateDeviceCard(card, device) {
                         statusText.textContent = device.isOn ? "已上锁" : "未上锁";
                         break;
                     case 'camera':
-                        // 摄像头：显示"开启"或"关闭"
+                        // 摄像头在线时显示开启/关闭状态
                         statusText.textContent = device.isOn ? "开启" : "关闭";
                         break;
                     case 'motor':
@@ -223,17 +219,31 @@ function updateDeviceCard(card, device) {
         } else {
             switch (device.typeIdentifier) {
                 case 'humidity-sensor':
-                    detailText.textContent = "湿度传感器 · 在线";
+                    var battery = device.batteryLevel || device.humidity;
+                    if (battery) {
+                        detailText.textContent = `湿度传感器 · 电量 ${battery}%`;
+                    } else {
+                        detailText.textContent = "湿度传感器 · 在线";
+                    }
                     break;
                 case 'temp-sensor':
-                    detailText.textContent = "温度传感器 · 在线";
+                    var battery = device.batteryLevel || device.humidity;
+                    if (battery) {
+                        detailText.textContent = `温度传感器 · 电量 ${battery}%`;
+                    } else {
+                        detailText.textContent = "温度传感器 · 在线";
+                    }
                     break;
                 case 'lock':
                     var battery = device.batteryLevel || device.humidity;
-                    detailText.textContent = battery ? `电量 ${battery}%` : device.detail;
+                    if (battery) {
+                        detailText.textContent = `电量 ${battery}%`;
+                    } else {
+                        detailText.textContent = device.detail;
+                    }
                     break;
                 case 'camera':
-                    detailText.textContent = device.detail || "摄像头 · 在线";
+                    detailText.textContent = "摄像头 · 在线";
                     break;
                 default:
                     detailText.textContent = device.detail;
@@ -271,22 +281,10 @@ function updateDeviceCard(card, device) {
         }
     }
 
-    // 控制设备的离线样式（卡片变灰）
-    if (device.typeIdentifier === 'camera') {
-        // 摄像头：根据 Detail 字段判断是否在线
-        // Detail 为 "摄像头 · 在线" 表示在线，"摄像头 · 离线" 表示离线
-        if (device.detail && device.detail.includes('离线')) {
-            card.classList.add('offline');
-        } else {
-            card.classList.remove('offline');
-        }
+    if (device.statusText === "离线") {
+        card.classList.add('offline');
     } else {
-        // 其他设备根据 statusText 判断
-        if (device.statusText === "离线") {
-            card.classList.add('offline');
-        } else {
-            card.classList.remove('offline');
-        }
+        card.classList.remove('offline');
     }
 }
 
@@ -358,42 +356,12 @@ function updateDevicePowerStatus(card, isOn) {
     }
 }
 
-// 摄像头专用电源状态更新（只更新状态文本，不影响在线状态）
-function updateCameraPowerStatus(card, isOn) {
-    const statusElement = card.querySelector('.device-status');
-    const statusText = statusElement?.querySelector('.status-text');
-
-    if (statusElement) {
-        if (isOn) {
-            statusElement.classList.add('on');
-            if (!statusElement.querySelector('.fa-circle')) {
-                const circle = document.createElement('i');
-                circle.className = 'fas fa-circle';
-                circle.style.cssText = 'font-size:0.5rem; margin-right:5px; color:#2ecc71;';
-                statusElement.insertBefore(circle, statusElement.firstChild);
-            }
-            const offlineIcon = statusElement.querySelector('.fa-power-off');
-            if (offlineIcon) offlineIcon.remove();
-        } else {
-            statusElement.classList.remove('on');
-            const circle = statusElement.querySelector('.fa-circle');
-            if (circle) circle.remove();
-        }
-        statusElement.dataset.isOn = isOn;
-    }
-
-    if (statusText) {
-        statusText.textContent = isOn ? "开启" : "关闭";
-    }
-}
-
 function updateDeviceOnlineStatus(card, isOnline) {
     const statusElement = card.querySelector('.device-status');
     const statusText = statusElement?.querySelector('.status-text');
     const deviceType = card.dataset.type;
 
     if (isOnline) {
-        // 在线：移除离线样式
         card.classList.remove('offline');
         const deleteIcon = card.querySelector('.delete-device');
         if (deleteIcon) {
@@ -403,14 +371,18 @@ function updateDeviceOnlineStatus(card, isOnline) {
         const offlineIcon = statusElement?.querySelector('.fa-power-off');
         if (offlineIcon) offlineIcon.remove();
 
-        // 非摄像头设备，在线时状态文本改为"在线"
+        // 摄像头在线时，不自动修改状态文本，保持原有状态（开启/关闭）
         if (deviceType !== 'camera') {
             if (statusText && statusText.textContent === "离线") {
-                statusText.textContent = "在线";
+                // 根据设备类型设置默认状态
+                if (deviceType === 'light') {
+                    statusText.textContent = "关闭";
+                } else {
+                    statusText.textContent = "在线";
+                }
             }
         }
     } else {
-        // 离线：添加离线样式（卡片变灰）
         card.classList.add('offline');
         const deleteIcon = card.querySelector('.delete-device');
         if (deleteIcon) {
@@ -418,11 +390,9 @@ function updateDeviceOnlineStatus(card, isOnline) {
             deleteIcon.style.pointerEvents = 'none';
         }
 
-        // 摄像头离线时，状态文本保持原样（开启/关闭），但卡片变灰
-        if (deviceType !== 'camera') {
-            if (statusText && statusText.textContent !== "离线") {
-                statusText.textContent = "离线";
-            }
+        // 所有设备离线时都显示"离线"（包括摄像头）
+        if (statusText && statusText.textContent !== "离线") {
+            statusText.textContent = "离线";
         }
 
         if (statusElement && !statusElement.querySelector('.fa-power-off')) {
@@ -433,6 +403,9 @@ function updateDeviceOnlineStatus(card, isOnline) {
         }
         const greenDot = statusElement?.querySelector('.fa-circle');
         if (greenDot) greenDot.remove();
+
+        // 移除在线状态类
+        statusElement?.classList.remove('on');
     }
 }
 
@@ -476,6 +449,42 @@ function updateBatteryLevelDisplay(card, batteryLevel) {
             statusElement.dataset.batteryLevel = batteryLevel;
             statusElement.dataset.humidity = batteryLevel;
         }
+    }
+}
+
+function updateDeviceDetailBattery(card, batteryLevel) {
+    const detailText = card.querySelector('.device-detail-text');
+    const deviceType = card.dataset.type;
+    if (!detailText) return;
+
+    let currentText = detailText.textContent;
+
+    switch (deviceType) {
+        case 'temp-sensor':
+            if (currentText.includes('温度传感器')) {
+                if (currentText.includes('电量')) {
+                    detailText.textContent = currentText.replace(/电量 \d+%/, `电量 ${batteryLevel}%`);
+                } else {
+                    detailText.textContent = `温度传感器 · 电量 ${batteryLevel}%`;
+                }
+            }
+            break;
+        case 'humidity-sensor':
+            if (currentText.includes('湿度传感器')) {
+                if (currentText.includes('电量')) {
+                    detailText.textContent = currentText.replace(/电量 \d+%/, `电量 ${batteryLevel}%`);
+                } else {
+                    detailText.textContent = `湿度传感器 · 电量 ${batteryLevel}%`;
+                }
+            }
+            break;
+        case 'lock':
+            if (currentText.includes('电量')) {
+                detailText.textContent = currentText.replace(/电量 \d+%/, `电量 ${batteryLevel}%`);
+            } else {
+                detailText.textContent = `电量 ${batteryLevel}%`;
+            }
+            break;
     }
 }
 
@@ -595,14 +604,15 @@ function updateDeviceFromTelemetry(deviceId, telemetry) {
     deviceCards.forEach(card => {
         const fullId = card.dataset.fullId;
         if (fullId === deviceId) {
+            // 优先处理在线状态
             if (telemetry.isOnline !== undefined) {
                 updateDeviceOnlineStatus(card, telemetry.isOnline);
             }
+
+            // 处理开关状态（仅在在线时生效）
             if (telemetry.isOn !== undefined) {
-                const deviceType = card.dataset.type;
-                if (deviceType === 'camera') {
-                    updateCameraPowerStatus(card, telemetry.isOn);
-                } else {
+                const isOnline = telemetry.isOnline !== undefined ? telemetry.isOnline : !card.classList.contains('offline');
+                if (isOnline) {
                     updateDevicePowerStatus(card, telemetry.isOn);
                 }
             }
@@ -615,6 +625,7 @@ function updateDeviceFromTelemetry(deviceId, telemetry) {
             }
             if (telemetry.batteryLevel !== undefined) {
                 updateBatteryLevelDisplay(card, telemetry.batteryLevel);
+                updateDeviceDetailBattery(card, telemetry.batteryLevel);
             }
             if (telemetry.speed !== undefined) {
                 updateFanSpeedDisplay(card, telemetry.speed);
@@ -711,7 +722,7 @@ function calculateTotalPower() {
         powerDisplay.textContent = totalPowerKW.toFixed(2);
     }
 
-    if (typeof powerHistory !== 'undefined' && powerHistory.length > 0) {
+    if (powerHistory.length > 0) {
         const lastPower = powerHistory[powerHistory.length - 1];
         const changePercent = lastPower > 0 ? ((totalPowerKW - lastPower) / lastPower * 100).toFixed(1) : 0;
         const trendElement = document.getElementById('powerTrend');
@@ -728,11 +739,8 @@ function calculateTotalPower() {
             }
         }
     }
-
-    if (typeof powerHistory !== 'undefined') {
-        powerHistory.push(totalPowerKW);
-        if (powerHistory.length > 24) powerHistory.shift();
-    }
+    powerHistory.push(totalPowerKW);
+    if (powerHistory.length > 24) powerHistory.shift();
 }
 
 function updateDeviceStats() {
@@ -786,7 +794,6 @@ function updateDevicesIncremental(devices) {
             updateDeviceCard(card, device);
         }
     });
-
     updateDeviceStats();
     calculateTotalPower();
     calculateAverageRoomTemp();
@@ -846,7 +853,7 @@ function showNotification(message, type, duration = 3000) {
     }, duration);
 }
 
-// ==================== 设备卡片点击事件（事件委托版）====================
+// ==================== 设备卡片点击事件 ====================
 function initDeviceCardClick() {
     const container = document.getElementById('deviceGrid');
     if (!container) {
@@ -857,7 +864,6 @@ function initDeviceCardClick() {
 
     container.removeEventListener('click', deviceClickHandler);
     container.addEventListener('click', deviceClickHandler);
-
     console.log('设备卡片点击事件已初始化（事件委托模式）');
 }
 
@@ -889,7 +895,6 @@ function deviceClickHandler(e) {
     openDeviceSettings(deviceId, deviceName, deviceType);
 }
 
-// ==================== 设备设置功能 ====================
 function openDeviceSettings(deviceId, deviceName, deviceType) {
     const modal = document.getElementById('deviceSettingsModal');
     const settingsContent = document.getElementById('settingsContent');
@@ -919,6 +924,22 @@ function openDeviceSettings(deviceId, deviceName, deviceType) {
     const isOn = statusElement.classList.contains('on');
 
     let temperature = 0, humidity = 0, speed = 0, mode = 'cool', direction = 'stop', powerValue = 0;
+    let batteryLevel = null;
+
+    // 获取电量（从 powerSpan 的电池图标或 statusElement 的 data 属性）
+    const powerSpan = deviceCard.querySelector('.device-power');
+    if (powerSpan) {
+        const batteryIcon = powerSpan.querySelector('i');
+        if (batteryIcon && batteryIcon.title) {
+            const match = batteryIcon.title.match(/电量 (\d+)%/);
+            if (match) {
+                batteryLevel = parseInt(match[1]);
+            }
+        }
+    }
+    if (batteryLevel === null && statusElement) {
+        batteryLevel = parseInt(statusElement.dataset.batteryLevel || statusElement.dataset.humidity || '0');
+    }
 
     switch (deviceType) {
         case 'temp-sensor':
@@ -940,11 +961,6 @@ function openDeviceSettings(deviceId, deviceName, deviceType) {
             break;
     }
 
-    const powerSpan = deviceCard.querySelector('.device-power');
-    if (powerSpan) {
-        powerValue = parseFloat(powerSpan.dataset.powerValue || '0') * 1000;
-    }
-
     let template = null;
     switch (deviceType) {
         case 'light': template = document.getElementById('lightSettingsTemplate'); break;
@@ -964,21 +980,21 @@ function openDeviceSettings(deviceId, deviceName, deviceType) {
     if (template) {
         settingsContent.innerHTML = '';
         settingsContent.appendChild(template.content.cloneNode(true));
-        initSettingsControls(deviceType, deviceId, isOn, temperature, humidity, speed, mode, direction, powerValue);
+        initSettingsControls(deviceType, deviceId, isOn, temperature, humidity, speed, mode, direction, powerValue, batteryLevel);
     }
 
     modal.style.display = 'flex';
 }
 
-function initSettingsControls(deviceType, deviceId, isOn, temperature, humidity, speed, mode, direction, powerValue) {
+function initSettingsControls(deviceType, deviceId, isOn, temperature, humidity, speed, mode, direction, powerValue, batteryLevel) {
     switch (deviceType) {
         case 'light': initLightSettings(deviceId, isOn); break;
         case 'ac': initAcSettings(deviceId, isOn, temperature, mode, powerValue); break;
-        case 'lock': initLockSettings(deviceId, isOn); break;
-        case 'camera': initCameraSettings(deviceId, isOn); break;
+        case 'lock': initLockSettings(deviceId, isOn, batteryLevel); break;
+        case 'camera': initCameraSettings(deviceId, isOn, batteryLevel); break;
         case 'fan': initFanSettings(deviceId, isOn, speed); break;
-        case 'temp-sensor': initTempSensorSettings(temperature); break;
-        case 'humidity-sensor': initHumiditySensorSettings(humidity); break;
+        case 'temp-sensor': initTempSensorSettings(temperature, batteryLevel); break;
+        case 'humidity-sensor': initHumiditySensorSettings(humidity, batteryLevel); break;
         case 'motor': initMotorSettings(deviceId, direction); break;
     }
 }
@@ -1068,9 +1084,19 @@ function initAcSettings(deviceId, isOn, temperature, mode, powerValue) {
     }
 }
 
-function initLockSettings(deviceId, isOn) {
+function initLockSettings(deviceId, isOn, batteryLevel) {
     const toggle = document.getElementById('lockToggle');
     const status = document.getElementById('lockStatus');
+
+    // 显示电量
+    const batteryFill = document.getElementById('lockBatteryFill');
+    const batteryText = document.getElementById('lockBatteryLevel');
+    if (batteryFill && batteryText && batteryLevel !== undefined && batteryLevel !== null && batteryLevel > 0) {
+        const level = Math.min(100, Math.max(0, batteryLevel));
+        batteryFill.style.width = level + '%';
+        batteryFill.style.background = level <= 15 ? '#f44336' : level <= 30 ? '#ff9800' : '#4caf50';
+        batteryText.textContent = level + '%';
+    }
 
     if (toggle) {
         toggle.classList.toggle('active', isOn);
@@ -1095,11 +1121,37 @@ function initLockSettings(deviceId, isOn) {
             }
         });
     }
+
+    const autoLock = document.getElementById('lockAutoLock');
+    if (autoLock) {
+        autoLock.addEventListener('change', function () {
+            sendDeviceCommand(deviceId, 'set_auto_lock', { seconds: parseInt(this.value) });
+        });
+    }
+
+    const generateBtn = document.getElementById('generateTempPwd');
+    if (generateBtn) {
+        generateBtn.addEventListener('click', function () {
+            sendDeviceCommand(deviceId, 'generate_temp_password', {}, (r) => {
+                if (r.success) showNotification('临时密码已生成', 'info');
+            });
+        });
+    }
 }
 
-function initCameraSettings(deviceId, isOn) {
+function initCameraSettings(deviceId, isOn, batteryLevel) {
     const toggle = document.getElementById('cameraPowerToggle');
     const status = document.getElementById('cameraPowerStatus');
+
+    // 显示电量
+    const batteryFill = document.getElementById('cameraBatteryFill');
+    const batteryText = document.getElementById('cameraBatteryLevel');
+    if (batteryFill && batteryText && batteryLevel !== undefined && batteryLevel !== null && batteryLevel > 0) {
+        const level = Math.min(100, Math.max(0, batteryLevel));
+        batteryFill.style.width = level + '%';
+        batteryFill.style.background = level <= 15 ? '#f44336' : level <= 30 ? '#ff9800' : '#4caf50';
+        batteryText.textContent = level + '%';
+    }
 
     if (toggle) {
         toggle.classList.toggle('active', isOn);
@@ -1141,17 +1193,51 @@ function initFanSettings(deviceId, isOn, speed) {
     }
 }
 
-function initTempSensorSettings(temperature) {
+function initTempSensorSettings(temperature, batteryLevel) {
     const tempDisplay = document.getElementById('currentTempDisplay');
     if (tempDisplay) {
         tempDisplay.textContent = temperature ? temperature.toFixed(1) : '--';
     }
+
+    // 显示电量
+    const batteryFill = document.getElementById('tempBatteryFill');
+    const batteryText = document.getElementById('tempBatteryLevel');
+    if (batteryFill && batteryText && batteryLevel !== undefined && batteryLevel !== null && batteryLevel > 0) {
+        const level = Math.min(100, Math.max(0, batteryLevel));
+        batteryFill.style.width = level + '%';
+        batteryFill.style.background = level <= 15 ? '#f44336' : level <= 30 ? '#ff9800' : '#4caf50';
+        batteryText.textContent = level + '%';
+    }
+
+    const intervalSelect = document.getElementById('sensorInterval');
+    if (intervalSelect && currentDeviceSettings) {
+        intervalSelect.addEventListener('change', function () {
+            sendDeviceCommand(currentDeviceSettings.id, 'set_report_interval', { interval: parseInt(this.value) * 60 });
+        });
+    }
 }
 
-function initHumiditySensorSettings(humidity) {
+function initHumiditySensorSettings(humidity, batteryLevel) {
     const humidityDisplay = document.getElementById('currentHumidityDisplay');
     if (humidityDisplay) {
         humidityDisplay.textContent = humidity || '--';
+    }
+
+    // 显示电量
+    const batteryFill = document.getElementById('humidityBatteryFill');
+    const batteryText = document.getElementById('humidityBatteryLevel');
+    if (batteryFill && batteryText && batteryLevel !== undefined && batteryLevel !== null && batteryLevel > 0) {
+        const level = Math.min(100, Math.max(0, batteryLevel));
+        batteryFill.style.width = level + '%';
+        batteryFill.style.background = level <= 15 ? '#f44336' : level <= 30 ? '#ff9800' : '#4caf50';
+        batteryText.textContent = level + '%';
+    }
+
+    const intervalSelect = document.getElementById('humiditySensorInterval');
+    if (intervalSelect && currentDeviceSettings) {
+        intervalSelect.addEventListener('change', function () {
+            sendDeviceCommand(currentDeviceSettings.id, 'set_report_interval', { interval: parseInt(this.value) * 60 });
+        });
     }
 }
 
@@ -1901,7 +1987,6 @@ let deviceTypeData = [];
 
 // ==================== 页面初始化入口 ====================
 document.addEventListener('DOMContentLoaded', function () {
-    // 获取数据
     if (typeof roomData === 'undefined') roomData = [];
     if (typeof deviceTypeData === 'undefined') deviceTypeData = [];
 

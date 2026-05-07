@@ -594,26 +594,26 @@ namespace SmartHomeDashboard.Services
                                Detail = CASE 
                                    WHEN @isOn = 0 AND @statusText = '离线' THEN 
                                        CASE TypeIdentifier
+                                           WHEN 'camera' THEN '摄像头 · 离线'
+                                           WHEN 'light' THEN '灯光 · 离线'
                                            WHEN 'temp-sensor' THEN '温度传感器 · 离线'
                                            WHEN 'humidity-sensor' THEN '湿度传感器 · 离线'
                                            WHEN 'ac' THEN '空调 · 离线'
                                            WHEN 'lock' THEN '门锁 · 离线'
-                                           WHEN 'camera' THEN '摄像头 · 离线'
                                            WHEN 'fan' THEN '风扇 · 离线'
                                            WHEN 'motor' THEN '电机 · 离线'
-                                           WHEN 'light' THEN '灯光 · 离线'
                                            ELSE '设备 · 离线'
                                        END
                                    WHEN @isOn = 1 AND @statusText != '离线' THEN
                                        CASE TypeIdentifier
+                                           WHEN 'camera' THEN '摄像头 · 在线'
+                                           WHEN 'light' THEN '灯光 · 在线'
                                            WHEN 'temp-sensor' THEN '温度传感器 · 在线'
                                            WHEN 'humidity-sensor' THEN '湿度传感器 · 在线'
                                            WHEN 'ac' THEN '空调 · 在线'
                                            WHEN 'lock' THEN '门锁 · 在线'
-                                           WHEN 'camera' THEN '摄像头 · 在线'
                                            WHEN 'fan' THEN '风扇 · 在线'
                                            WHEN 'motor' THEN '电机 · 在线'
-                                           WHEN 'light' THEN '灯光 · 在线'
                                            ELSE '设备 · 在线'
                                        END
                                    ELSE Detail
@@ -1313,22 +1313,19 @@ namespace SmartHomeDashboard.Services
                 var connection = context.Database.GetDbConnection();
                 await connection.OpenAsync();
 
-                // 重置所有设备为离线状态
+                // 重置所有设备为离线状态 - 所有设备类型统一处理
                 var sql = @"UPDATE Devices 
                    SET IsOn = 0, 
-                       StatusText = CASE 
-                           WHEN TypeIdentifier = 'camera' THEN StatusText
-                           ELSE '离线' 
-                       END,
+                       StatusText = '离线',
                        Detail = CASE 
                            WHEN TypeIdentifier = 'camera' THEN '摄像头 · 离线'
+                           WHEN TypeIdentifier = 'light' THEN '灯光 · 离线'
                            WHEN TypeIdentifier = 'temp-sensor' THEN '温度传感器 · 离线'
                            WHEN TypeIdentifier = 'humidity-sensor' THEN '湿度传感器 · 离线'
                            WHEN TypeIdentifier = 'ac' THEN '空调 · 离线'
                            WHEN TypeIdentifier = 'lock' THEN '门锁 · 离线'
                            WHEN TypeIdentifier = 'fan' THEN '风扇 · 离线'
                            WHEN TypeIdentifier = 'motor' THEN '电机 · 离线'
-                           WHEN TypeIdentifier = 'light' THEN '灯光 · 离线'
                            ELSE '设备 · 离线' 
                        END,
                        ProgressColor = '#a0a0a0',
@@ -1350,10 +1347,28 @@ namespace SmartHomeDashboard.Services
                 using var roomCmd = connection.CreateCommand();
                 roomCmd.CommandText = roomSql;
                 await roomCmd.ExecuteNonQueryAsync();
+
+                // 发送更新到前端
+                var updatedDevices = await GetAllDevicesRawAsync();
+                await SendDevicesUpdateViaSignalR(updatedDevices);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "重置设备状态失败");
+            }
+        }
+
+        private async Task SendDevicesUpdateViaSignalR(List<DeviceModel> devices)
+        {
+            try
+            {
+                // 这个方法需要在 TcpServerService 中实现 SignalR 推送
+                // 暂时记录日志
+                _logger.LogInformation($"需要推送设备列表更新，共 {devices.Count} 个设备");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "发送设备列表更新失败");
             }
         }
 

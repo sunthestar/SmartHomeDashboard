@@ -416,29 +416,5 @@ dotnet run
 | v0.0.3 | 2026-03-19 | IP定位逻辑优化 |
 | v0.0.4 | 2026-03-20 | 数据库架构重构(SQLite)、迁移Entity Framework |
 | v0.0.5 | 2026-05-05 | 语义化字段扩展、摄像头开关/在线状态分离、电池电量显示、TCP服务器ADO.NET优化、AI助手集成、SignalR实时推送、登录失败计数重置、启动时设备重置为离线 |
+| v0.0.6 | 2026-05-07 | 修复部分卡片状态显示问题|
 
-### v0.0.5 详细更新内容
-
-**数据库字段扩展**
-- 新增 TemperatureValue、HumidityValue、BatteryLevel 语义化字段
-- 新增 Brightness、ColorTemperature 灯光专用字段
-- 新增 AcTemperature、AcMode、AcFanSpeed 空调专用字段
-- 新增 FanSpeed、FanSwing 风扇专用字段
-- 新增 MotorDirection 电机专用字段
-- 新增 IsRecording、MotionDetected、NightMode 摄像头专用字段
-
-**TCP服务器优化**
-- 修复ADO.NET查询NULL值问题
-- 增加心跳超时时间(30秒→90秒)
-- 优化设备注册连接查找逻辑
-- 摄像头在线/离线状态与开关状态分离
-
-**前端UI优化**
-- 摄像头卡片显示"开启"/"关闭"而非"在线"/"离线"
-- 摄像头离线时卡片变灰，状态文本保持原样
-- 电池供电设备显示电量图标
-- 设备卡片点击事件改用事件委托模式
-
-**其他修复**
-- 登录成功后重置失败计数
-- 启动时所有设备重置为离线状态

@@ -660,25 +660,24 @@ namespace SmartHomeDashboard.Services
                 var connection = context.Database.GetDbConnection();
                 await connection.OpenAsync();
 
+                // 所有设备类型统一处理为离线，摄像头也设置为"离线"
                 var sql = @"UPDATE Devices 
-                           SET IsOn = 0, 
-                               StatusText = CASE 
-                                   WHEN TypeIdentifier = 'camera' THEN StatusText 
-                                   ELSE '离线' 
-                               END,
-                               Detail = CASE 
-                                   WHEN TypeIdentifier = 'camera' THEN '摄像头 · 离线'
-                                   WHEN TypeIdentifier = 'temp-sensor' THEN '温度传感器 · 离线'
-                                   WHEN TypeIdentifier = 'humidity-sensor' THEN '湿度传感器 · 离线'
-                                   WHEN TypeIdentifier = 'ac' THEN '空调 · 离线'
-                                   WHEN TypeIdentifier = 'lock' THEN '门锁 · 离线'
-                                   WHEN TypeIdentifier = 'fan' THEN '风扇 · 离线'
-                                   WHEN TypeIdentifier = 'motor' THEN '电机 · 离线'
-                                   WHEN TypeIdentifier = 'light' THEN '灯光 · 离线'
-                                   ELSE '设备 · 离线' END,
-                               ProgressColor = '#a0a0a0',
-                               UpdatedAt = @now
-                           WHERE FullDeviceId = @fullDeviceId";
+                   SET IsOn = 0, 
+                       StatusText = '离线',
+                       Detail = CASE 
+                           WHEN TypeIdentifier = 'camera' THEN '摄像头 · 离线'
+                           WHEN TypeIdentifier = 'light' THEN '灯光 · 离线'
+                           WHEN TypeIdentifier = 'temp-sensor' THEN '温度传感器 · 离线'
+                           WHEN TypeIdentifier = 'humidity-sensor' THEN '湿度传感器 · 离线'
+                           WHEN TypeIdentifier = 'ac' THEN '空调 · 离线'
+                           WHEN TypeIdentifier = 'lock' THEN '门锁 · 离线'
+                           WHEN TypeIdentifier = 'fan' THEN '风扇 · 离线'
+                           WHEN TypeIdentifier = 'motor' THEN '电机 · 离线'
+                           ELSE '设备 · 离线' 
+                       END,
+                       ProgressColor = '#a0a0a0',
+                       UpdatedAt = @now
+                   WHERE FullDeviceId = @fullDeviceId";
 
                 using var cmd = connection.CreateCommand();
                 cmd.CommandText = sql;
@@ -693,8 +692,28 @@ namespace SmartHomeDashboard.Services
                 nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
                 cmd.Parameters.Add(nowParam);
 
-                await cmd.ExecuteNonQueryAsync();
-                _logger.LogInformation($"设备 {fullDeviceId} 已标记为离线");
+                int rowsAffected = await cmd.ExecuteNonQueryAsync();
+
+                if (rowsAffected > 0)
+                {
+                    _logger.LogInformation($"设备 {fullDeviceId} 已标记为离线");
+
+                    // 同时更新房间在线统计
+                    var roomSql = @"UPDATE Rooms 
+                           SET OnlineCount = (
+                               SELECT COUNT(*) FROM Devices 
+                               WHERE RoomId = Rooms.Id AND IsOn = 1 AND StatusText != '离线'
+                           ),
+                           UpdatedAt = @now";
+
+                    using var roomCmd = connection.CreateCommand();
+                    roomCmd.CommandText = roomSql;
+                    var roomNowParam = roomCmd.CreateParameter();
+                    roomNowParam.ParameterName = "@now";
+                    roomNowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                    roomCmd.Parameters.Add(roomNowParam);
+                    await roomCmd.ExecuteNonQueryAsync();
+                }
 
                 var updatedDevices = await GetAllDevicesRawAsync();
                 await SendDevicesUpdateToClients(updatedDevices);
@@ -777,6 +796,78 @@ namespace SmartHomeDashboard.Services
             }
         }
 
+        private async Task UpdateDeviceBrightness(int deviceId, int brightness)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = "UPDATE Devices SET Brightness = @brightness, Progress = @brightness, UpdatedAt = @now WHERE Id = @deviceId";
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var brightnessParam = cmd.CreateParameter();
+                brightnessParam.ParameterName = "@brightness";
+                brightnessParam.Value = brightness;
+                cmd.Parameters.Add(brightnessParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                _logger.LogInformation($"灯光亮度已更新: DeviceId={deviceId}, Brightness={brightness}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"更新设备亮度失败 ID: {deviceId}");
+            }
+        }
+
+        private async Task UpdateDeviceColorTemperature(int deviceId, int colorTemp)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = "UPDATE Devices SET ColorTemperature = @colorTemp, UpdatedAt = @now WHERE Id = @deviceId";
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var tempParam = cmd.CreateParameter();
+                tempParam.ParameterName = "@colorTemp";
+                tempParam.Value = colorTemp;
+                cmd.Parameters.Add(tempParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                _logger.LogInformation($"灯光色温已更新: DeviceId={deviceId}, ColorTemp={colorTemp}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"更新设备色温失败 ID: {deviceId}");
+            }
+        }
+
         private async Task UpdateDeviceCameraOnlineStatus(int deviceId, bool isOnline)
         {
             try
@@ -785,7 +876,6 @@ namespace SmartHomeDashboard.Services
                 var connection = context.Database.GetDbConnection();
                 await connection.OpenAsync();
 
-                // 只更新 Detail 和 ProgressColor，不更新 StatusText 和 IsOn
                 var sql = @"UPDATE Devices 
                            SET Detail = CASE 
                                    WHEN @isOnline = 1 THEN '摄像头 · 在线'
@@ -822,6 +912,50 @@ namespace SmartHomeDashboard.Services
             }
         }
 
+        private async Task UpdateDeviceLightOnlineStatus(int deviceId, bool isOnline)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"UPDATE Devices 
+                           SET Detail = CASE 
+                                   WHEN @isOnline = 1 THEN '灯光 · 在线'
+                                   ELSE '灯光 · 离线'
+                               END,
+                               ProgressColor = CASE WHEN @isOnline = 1 THEN '#4caf50' ELSE '#a0a0a0' END,
+                               UpdatedAt = @now
+                           WHERE Id = @deviceId AND TypeIdentifier = 'light'";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var isOnlineParam = cmd.CreateParameter();
+                isOnlineParam.ParameterName = "@isOnline";
+                isOnlineParam.Value = isOnline ? 1 : 0;
+                cmd.Parameters.Add(isOnlineParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                _logger.LogInformation($"灯光在线状态已更新: DeviceId={deviceId}, IsOnline={isOnline}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"更新灯光在线状态失败 ID: {deviceId}");
+            }
+        }
+
         private async Task UpdateDeviceCameraPowerStatus(int deviceId, bool isOn)
         {
             try
@@ -830,7 +964,6 @@ namespace SmartHomeDashboard.Services
                 var connection = context.Database.GetDbConnection();
                 await connection.OpenAsync();
 
-                // 只更新开关状态（StatusText 和 IsOn），不影响在线状态
                 var sql = @"UPDATE Devices 
                            SET StatusText = CASE WHEN @isOn = 1 THEN '开启' ELSE '关闭' END,
                                IsOn = @isOn,
@@ -861,6 +994,53 @@ namespace SmartHomeDashboard.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"更新摄像头开关状态失败 ID: {deviceId}");
+            }
+        }
+
+        private async Task UpdateDeviceOnlineStatus(int deviceId, bool isOnline, string statusText)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"UPDATE Devices 
+                           SET IsOn = @isOnline, 
+                               StatusText = @statusText,
+                               ProgressColor = CASE WHEN @isOnline = 1 THEN '#4caf50' ELSE '#a0a0a0' END,
+                               UpdatedAt = @now
+                           WHERE Id = @deviceId";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var isOnlineParam = cmd.CreateParameter();
+                isOnlineParam.ParameterName = "@isOnline";
+                isOnlineParam.Value = isOnline ? 1 : 0;
+                cmd.Parameters.Add(isOnlineParam);
+
+                var statusParam = cmd.CreateParameter();
+                statusParam.ParameterName = "@statusText";
+                statusParam.Value = statusText;
+                cmd.Parameters.Add(statusParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@deviceId";
+                idParam.Value = deviceId;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                _logger.LogInformation($"设备在线状态已更新: DeviceId={deviceId}, IsOnline={isOnline}, StatusText={statusText}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"更新设备在线状态失败 ID: {deviceId}");
             }
         }
 
@@ -1255,8 +1435,15 @@ namespace SmartHomeDashboard.Services
                         break;
 
                     case "light":
-                        bool isLightOn = currentValue == "开启";
-                        await UpdateDevicePowerStatus(deviceId, isLightOn);
+                        // 灯光：只更新开关状态（StatusText），不影响在线状态
+                        if (currentValue == "开启")
+                        {
+                            await UpdateDevicePowerStatus(deviceId, true);
+                        }
+                        else if (currentValue == "关闭")
+                        {
+                            await UpdateDevicePowerStatus(deviceId, false);
+                        }
                         break;
 
                     case "lock":
@@ -1265,7 +1452,7 @@ namespace SmartHomeDashboard.Services
                         break;
 
                     case "camera":
-                        // 摄像头：根据 currentValue 更新开关状态
+                        // 摄像头：只更新开关状态，不影响在线状态
                         if (currentValue == "开启")
                         {
                             await UpdateDeviceCameraPowerStatus(deviceId, true);
@@ -1395,9 +1582,16 @@ namespace SmartHomeDashboard.Services
                         }
                     }
 
+                    // 设备在线，更新状态
                     if (existingDevice.TypeIdentifier == "camera")
                     {
                         await UpdateDeviceCameraOnlineStatus(existingDevice.Id, true);
+                        // 摄像头保持原有开关状态，不自动设置为"在线"
+                    }
+                    else if (existingDevice.TypeIdentifier == "light")
+                    {
+                        await UpdateDeviceLightOnlineStatus(existingDevice.Id, true);
+                        await UpdateDeviceOnlineStatus(existingDevice.Id, true, existingDevice.StatusText);
                     }
                     else
                     {
@@ -1444,14 +1638,18 @@ namespace SmartHomeDashboard.Services
                     return;
                 }
 
-                // 根据设备类型设置初始状态
-                string initialStatusText = "在线";
-                string initialDetail = $"{GetDeviceTypeDisplay(deviceType)} · 在线";
+                string initialStatusText = "离线";
+                string initialDetail = $"{GetDeviceTypeDisplay(deviceType)} · 离线";
 
                 if (deviceType == "camera")
                 {
                     initialStatusText = "关闭";
-                    initialDetail = "摄像头 · 在线";
+                    initialDetail = "摄像头 · 离线";
+                }
+                else if (deviceType == "light")
+                {
+                    initialStatusText = "关闭";
+                    initialDetail = "灯光 · 离线";
                 }
 
                 var newDevice = new DeviceModel
@@ -1464,13 +1662,13 @@ namespace SmartHomeDashboard.Services
                     RoomIdentifier = deviceRoom,
                     TypeIdentifier = deviceType,
                     Icon = GetIconForDeviceType(deviceType),
-                    IsOn = deviceType == "camera" ? false : true,
+                    IsOn = false,
                     StatusText = initialStatusText,
                     Detail = initialDetail,
                     Power = "0W",
                     PowerValue = 0,
                     Progress = 0,
-                    ProgressColor = "#4caf50",
+                    ProgressColor = "#a0a0a0",
                     CreatedAt = DateTime.Now
                 };
 
@@ -1516,52 +1714,6 @@ namespace SmartHomeDashboard.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "处理注册消息失败");
-            }
-        }
-
-        private async Task UpdateDeviceOnlineStatus(int deviceId, bool isOnline, string statusText)
-        {
-            try
-            {
-                using var context = await _dbContextFactory.CreateDbContextAsync();
-                var connection = context.Database.GetDbConnection();
-                await connection.OpenAsync();
-
-                var sql = @"UPDATE Devices 
-                           SET IsOn = @isOnline, 
-                               StatusText = @statusText,
-                               ProgressColor = CASE WHEN @isOnline = 1 THEN '#4caf50' ELSE '#a0a0a0' END,
-                               UpdatedAt = @now
-                           WHERE Id = @deviceId";
-
-                using var cmd = connection.CreateCommand();
-                cmd.CommandText = sql;
-
-                var isOnlineParam = cmd.CreateParameter();
-                isOnlineParam.ParameterName = "@isOnline";
-                isOnlineParam.Value = isOnline ? 1 : 0;
-                cmd.Parameters.Add(isOnlineParam);
-
-                var statusParam = cmd.CreateParameter();
-                statusParam.ParameterName = "@statusText";
-                statusParam.Value = statusText;
-                cmd.Parameters.Add(statusParam);
-
-                var nowParam = cmd.CreateParameter();
-                nowParam.ParameterName = "@now";
-                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-                cmd.Parameters.Add(nowParam);
-
-                var idParam = cmd.CreateParameter();
-                idParam.ParameterName = "@deviceId";
-                idParam.Value = deviceId;
-                cmd.Parameters.Add(idParam);
-
-                await cmd.ExecuteNonQueryAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"更新设备在线状态失败 ID: {deviceId}");
             }
         }
 
@@ -1635,6 +1787,7 @@ namespace SmartHomeDashboard.Services
                                 {
                                     if (isOnlineElem.ValueKind == JsonValueKind.True) isOnline = true;
                                     else if (isOnlineElem.ValueKind == JsonValueKind.False) isOnline = false;
+                                    _logger.LogInformation($"解析到 isOnline 字段: {isOnline.Value} 设备: {otherDeviceId}");
                                 }
 
                                 int? batteryLevel = null;
@@ -1648,7 +1801,7 @@ namespace SmartHomeDashboard.Services
                                 {
                                     bool deviceUpdated = false;
 
-                                    // 处理在线状态
+                                    // ========== 处理在线状态 ==========
                                     if (isOnline.HasValue)
                                     {
                                         if (otherDevice.TypeIdentifier == "camera")
@@ -1657,24 +1810,32 @@ namespace SmartHomeDashboard.Services
                                             deviceUpdated = true;
                                             _logger.LogInformation($"摄像头 {otherDevice.Name} 在线状态更新: {(isOnline.Value ? "在线" : "离线")}");
                                         }
+                                        else if (otherDevice.TypeIdentifier == "light")
+                                        {
+                                            await UpdateDeviceLightOnlineStatus(otherDevice.Id, isOnline.Value);
+                                            deviceUpdated = true;
+                                            _logger.LogInformation($"灯光 {otherDevice.Name} 在线状态更新: {(isOnline.Value ? "在线" : "离线")}");
+                                        }
                                         else
                                         {
-                                            await UpdateDeviceOnlineStatus(otherDevice.Id, isOnline.Value, currentValue ?? (isOnline.Value ? "在线" : "离线"));
+                                            string statusText = isOnline.Value ? (currentValue ?? "在线") : "离线";
+                                            await UpdateDeviceOnlineStatus(otherDevice.Id, isOnline.Value, statusText);
                                             deviceUpdated = true;
+                                            _logger.LogInformation($"设备 {otherDevice.Name} 在线状态更新: {(isOnline.Value ? "在线" : "离线")}, StatusText={statusText}");
                                         }
                                     }
 
-                                    // 更新状态文本（开关状态）
+                                    // 更新状态文本（只有在线时才更新温度传感器的状态文本）
                                     if (!string.IsNullOrEmpty(currentValue))
                                     {
-                                        await UpdateDeviceStatusText(otherDevice.Id, currentValue);
-                                        deviceUpdated = true;
-
-                                        // 对于摄像头，还需更新 IsOn 状态（开关状态）
-                                        if (otherDevice.TypeIdentifier == "camera")
+                                        if (otherDevice.TypeIdentifier != "camera" && otherDevice.TypeIdentifier != "light")
                                         {
-                                            bool isCameraOn = currentValue == "开启";
-                                            await UpdateDeviceCameraPowerStatus(otherDevice.Id, isCameraOn);
+                                            if (otherDevice.StatusText != currentValue)
+                                            {
+                                                await UpdateDeviceStatusText(otherDevice.Id, currentValue);
+                                                deviceUpdated = true;
+                                                _logger.LogInformation($"设备 {otherDevice.Name} 状态文本更新: {currentValue}");
+                                            }
                                         }
 
                                         await ParseAndUpdateDeviceSpecificValues(otherDevice.Id, otherDevice.TypeIdentifier, currentValue);
@@ -1793,61 +1954,140 @@ namespace SmartHomeDashboard.Services
 
                     if (device != null)
                     {
-                        // 处理温度传感器
-                        if (telemetryData.TemperatureValue.HasValue && device.TypeIdentifier == "temp-sensor")
-                        {
-                            await UpdateDeviceTemperature(device.Id, telemetryData.TemperatureValue.Value);
-                            var statusText = $"温度 {telemetryData.TemperatureValue.Value:F1}°C";
-                            await UpdateDeviceStatusText(device.Id, statusText);
-                            needUpdate = true;
-                            _logger.LogInformation($"温度传感器 {device.Name} 温度更新为 {telemetryData.TemperatureValue.Value}°C");
-                        }
+                        // 检查设备是否在线
+                        bool isCurrentlyOnline = device.StatusText != "离线";
 
-                        // 处理湿度传感器
-                        if (telemetryData.HumidityValue.HasValue && device.TypeIdentifier == "humidity-sensor")
-                        {
-                            await UpdateDeviceHumidity(device.Id, telemetryData.HumidityValue.Value);
-                            var statusText = $"湿度 {telemetryData.HumidityValue.Value:F0}%";
-                            await UpdateDeviceStatusText(device.Id, statusText);
-                            needUpdate = true;
-                            _logger.LogInformation($"湿度传感器 {device.Name} 湿度更新为 {telemetryData.HumidityValue.Value}%");
-                        }
-
-                        // 处理摄像头
+                        // ========== 摄像头设备处理 ==========
                         if (device.TypeIdentifier == "camera")
                         {
-                            if (telemetryData.IsOn.HasValue)
+                            // 如果设备当前处于离线状态，不应该通过遥测数据强制上线
+                            // 只有当设备在线时才处理遥测数据
+                            if (!isCurrentlyOnline)
+                            {
+                                _logger.LogInformation($"摄像头 {device.Name} 当前处于离线状态，忽略遥测数据更新");
+                                // 仍然需要检查是否有 isOnline=true 的状态更新
+                                if (telemetryData.IsOnline.HasValue && telemetryData.IsOnline.Value == true)
+                                {
+                                    // 明确收到上线信号才上线
+                                    await UpdateDeviceCameraOnlineStatus(device.Id, true);
+                                    isCurrentlyOnline = true;
+                                    needUpdate = true;
+                                    _logger.LogInformation($"摄像头 {device.Name} 通过遥测数据上线（明确收到上线信号）");
+                                }
+                                else
+                                {
+                                    // 如果没有明确的上线信号，不处理其他遥测数据
+                                    // 但需要检查是否强制要求更新
+                                    if (needUpdate)
+                                    {
+                                        var updatedDevices = await GetAllDevicesRawAsync();
+                                        await SendDevicesUpdateToClients(updatedDevices);
+                                    }
+                                    return;
+                                }
+                            }
+
+                            if (isCurrentlyOnline)
+                            {
+                                // 只有在设备在线时才处理开关状态
+                                if (telemetryData.IsOn.HasValue)
+                                {
+                                    var statusText = telemetryData.IsOn.Value ? "开启" : "关闭";
+                                    await UpdateDeviceStatusText(device.Id, statusText);
+                                    await UpdateDeviceCameraPowerStatus(device.Id, telemetryData.IsOn.Value);
+                                    needUpdate = true;
+                                    _logger.LogInformation($"摄像头 {device.Name} 开关状态更新为: {statusText}");
+                                }
+
+                                if (telemetryData.MotionDetected.HasValue)
+                                {
+                                    await UpdateDeviceMotionDetected(device.Id, telemetryData.MotionDetected.Value);
+                                    needUpdate = true;
+                                    _logger.LogInformation($"摄像头 {device.Name} 运动侦测更新为: {telemetryData.MotionDetected.Value}");
+                                }
+
+                                if (telemetryData.IsRecording.HasValue)
+                                {
+                                    await UpdateDeviceIsRecording(device.Id, telemetryData.IsRecording.Value);
+                                    needUpdate = true;
+                                    _logger.LogInformation($"摄像头 {device.Name} 录制状态更新为: {telemetryData.IsRecording.Value}");
+                                }
+
+                                if (!string.IsNullOrEmpty(telemetryData.NightMode))
+                                {
+                                    await UpdateDeviceNightMode(device.Id, telemetryData.NightMode);
+                                    needUpdate = true;
+                                    _logger.LogInformation($"摄像头 {device.Name} 夜视模式更新为: {telemetryData.NightMode}");
+                                }
+                            }
+                        }
+                        // ========== 灯光设备处理 ==========
+                        else if (device.TypeIdentifier == "light")
+                        {
+                            // 首先确保设备在线状态正确
+                            if (!isCurrentlyOnline && telemetryData.IsOn.HasValue)
+                            {
+                                await UpdateDeviceLightOnlineStatus(device.Id, true);
+                                await UpdateDeviceOnlineStatus(device.Id, true, telemetryData.IsOn.Value ? "开启" : "关闭");
+                                isCurrentlyOnline = true;
+                                needUpdate = true;
+                                _logger.LogInformation($"灯光 {device.Name} 通过遥测数据上线");
+                            }
+
+                            // 更新亮度
+                            if (telemetryData.Brightness.HasValue)
+                            {
+                                await UpdateDeviceBrightness(device.Id, telemetryData.Brightness.Value);
+                                needUpdate = true;
+                                _logger.LogInformation($"灯光 {device.Name} 亮度更新为 {telemetryData.Brightness.Value}%");
+                            }
+
+                            // 更新色温
+                            if (telemetryData.ColorTemperature.HasValue)
+                            {
+                                await UpdateDeviceColorTemperature(device.Id, telemetryData.ColorTemperature.Value);
+                                needUpdate = true;
+                                _logger.LogInformation($"灯光 {device.Name} 色温更新为 {telemetryData.ColorTemperature.Value}K");
+                            }
+
+                            // 更新开关状态
+                            if (telemetryData.IsOn.HasValue && isCurrentlyOnline)
                             {
                                 var statusText = telemetryData.IsOn.Value ? "开启" : "关闭";
                                 await UpdateDeviceStatusText(device.Id, statusText);
-                                await UpdateDeviceCameraPowerStatus(device.Id, telemetryData.IsOn.Value);
+                                await UpdateDevicePowerStatus(device.Id, telemetryData.IsOn.Value);
                                 needUpdate = true;
-                                _logger.LogInformation($"摄像头 {device.Name} 开关状态更新为: {statusText}");
-                            }
-
-                            if (telemetryData.MotionDetected.HasValue)
-                            {
-                                await UpdateDeviceMotionDetected(device.Id, telemetryData.MotionDetected.Value);
-                                needUpdate = true;
-                                _logger.LogInformation($"摄像头 {device.Name} 运动侦测更新为: {telemetryData.MotionDetected.Value}");
-                            }
-
-                            if (telemetryData.IsRecording.HasValue)
-                            {
-                                await UpdateDeviceIsRecording(device.Id, telemetryData.IsRecording.Value);
-                                needUpdate = true;
-                                _logger.LogInformation($"摄像头 {device.Name} 录制状态更新为: {telemetryData.IsRecording.Value}");
-                            }
-
-                            if (!string.IsNullOrEmpty(telemetryData.NightMode))
-                            {
-                                await UpdateDeviceNightMode(device.Id, telemetryData.NightMode);
-                                needUpdate = true;
-                                _logger.LogInformation($"摄像头 {device.Name} 夜视模式更新为: {telemetryData.NightMode}");
+                                _logger.LogInformation($"灯光 {device.Name} 开关状态更新为: {statusText}");
                             }
                         }
+                        // ========== 温度传感器处理 ==========
+                        else if (telemetryData.TemperatureValue.HasValue && device.TypeIdentifier == "temp-sensor")
+                        {
+                            await UpdateDeviceTemperature(device.Id, telemetryData.TemperatureValue.Value);
 
-                        // 处理电量
+                            if (isCurrentlyOnline)
+                            {
+                                var statusText = $"温度 {telemetryData.TemperatureValue.Value:F1}°C";
+                                await UpdateDeviceStatusText(device.Id, statusText);
+                            }
+                            needUpdate = true;
+                            _logger.LogInformation($"温度传感器 {device.Name} 温度更新为 {telemetryData.TemperatureValue.Value}°C，当前在线状态: {isCurrentlyOnline}");
+                        }
+                        // ========== 湿度传感器处理 ==========
+                        else if (telemetryData.HumidityValue.HasValue && device.TypeIdentifier == "humidity-sensor")
+                        {
+                            await UpdateDeviceHumidity(device.Id, telemetryData.HumidityValue.Value);
+
+                            if (isCurrentlyOnline)
+                            {
+                                var statusText = $"湿度 {telemetryData.HumidityValue.Value:F0}%";
+                                await UpdateDeviceStatusText(device.Id, statusText);
+                            }
+                            needUpdate = true;
+                            _logger.LogInformation($"湿度传感器 {device.Name} 湿度更新为 {telemetryData.HumidityValue.Value}%，当前在线状态: {isCurrentlyOnline}");
+                        }
+
+                        // 统一处理电量更新（所有设备类型）
                         if (telemetryData.BatteryLevel.HasValue)
                         {
                             await UpdateDeviceBatteryLevel(device.Id, telemetryData.BatteryLevel.Value);
@@ -1867,6 +2107,8 @@ namespace SmartHomeDashboard.Services
                                 {
                                     deviceId = message.DeviceId,
                                     isOn = telemetryData.IsOn,
+                                    brightness = telemetryData.Brightness,
+                                    colorTemperature = telemetryData.ColorTemperature,
                                     motionDetected = telemetryData.MotionDetected,
                                     isRecording = telemetryData.IsRecording,
                                     nightMode = telemetryData.NightMode,
@@ -1906,28 +2148,54 @@ namespace SmartHomeDashboard.Services
                     var device = await GetDeviceByFullIdRawAsync(message.DeviceId);
                     if (device != null)
                     {
-                        if (device.TypeIdentifier == "camera")
+                        if (statusData.IsOnline)
                         {
-                            // 更新在线状态（控制卡片变灰）
-                            await UpdateDeviceCameraOnlineStatus(device.Id, statusData.IsOnline);
-
-                            // 如果有 currentValue，同时更新开关状态
-                            if (statusData.CurrentValue != null)
+                            // 设备在线
+                            if (device.TypeIdentifier == "camera")
                             {
-                                var currentValueStr = statusData.CurrentValue.ToString();
-                                if (currentValueStr == "开启" || currentValueStr == "关闭")
+                                // 摄像头：保持 StatusText 为当前状态（开启/关闭），但标记为在线
+                                await UpdateDeviceCameraOnlineStatus(device.Id, true);
+                                // 不改变 IsOn 和 StatusText，保持原有开关状态
+                                // 如果 currentValue 有值且不是"离线"，可以更新状态
+                                if (statusData.CurrentValue != null &&
+                                    statusData.CurrentValue.ToString() != "离线")
                                 {
-                                    await UpdateDeviceStatusText(device.Id, currentValueStr);
-                                    await UpdateDeviceCameraPowerStatus(device.Id, currentValueStr == "开启");
+                                    var currentValue = statusData.CurrentValue.ToString();
+                                    if (currentValue == "开启" || currentValue == "关闭")
+                                    {
+                                        bool isOn = currentValue == "开启";
+                                        await UpdateDeviceStatusText(device.Id, currentValue);
+                                        await UpdateDeviceCameraPowerStatus(device.Id, isOn);
+                                        _logger.LogInformation($"摄像头 {device.Name} 状态更新为: {currentValue}");
+                                    }
                                 }
+                                _logger.LogInformation($"摄像头 {device.Name} 在线");
+                            }
+                            else if (device.TypeIdentifier == "light")
+                            {
+                                await UpdateDeviceLightOnlineStatus(device.Id, true);
+                                await UpdateDeviceOnlineStatus(device.Id, true, device.StatusText);
+                                _logger.LogInformation($"灯光 {device.Name} 在线");
+                            }
+                            else
+                            {
+                                await UpdateDeviceOnlineStatus(device.Id, true, "在线");
+                                _logger.LogInformation($"设备 {device.Name} 在线");
                             }
                         }
                         else
                         {
-                            await UpdateDeviceOnlineStatus(device.Id, statusData.IsOnline, statusData.IsOnline ? "在线" : "离线");
+                            // 设备离线 - 统一处理，所有设备都显示离线
+                            _logger.LogInformation($"设备 {device.Name} 离线");
+                            await SetDeviceOfflineInDatabase(message.DeviceId);
                         }
+
                         var updatedDevices = await GetAllDevicesRawAsync();
                         await SendDevicesUpdateToClients(updatedDevices);
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"设备 {message.DeviceId} 不存在于数据库中");
                     }
                 }
             }
@@ -2231,18 +2499,8 @@ namespace SmartHomeDashboard.Services
 
                     _logger.LogInformation($"设备 {deviceId} 因心跳超时已离线");
 
-                    // 根据设备类型更新离线状态
-                    if (clientInfo.DeviceType == "camera")
-                    {
-                        if (int.TryParse(clientInfo.DeviceId?.Split('-').Last(), out int cameraId))
-                        {
-                            await UpdateDeviceCameraOnlineStatus(cameraId, false);
-                        }
-                    }
-                    else
-                    {
-                        await SetDeviceOfflineInDatabase(deviceId);
-                    }
+                    // 所有设备类型统一标记为离线
+                    await SetDeviceOfflineInDatabase(deviceId);
                 }
             }
             catch (Exception ex)
@@ -2279,6 +2537,8 @@ namespace SmartHomeDashboard.Services
                     d.TemperatureValue,
                     d.HumidityValue,
                     d.BatteryLevel,
+                    d.Brightness,
+                    d.ColorTemperature,
                     d.AcTemperature,
                     d.AcMode,
                     d.FanSpeed,

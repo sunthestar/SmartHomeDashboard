@@ -197,7 +197,14 @@ namespace SmartHomeDashboard.Models
         // 电机属性
         public string? Direction { get; set; }
 
-        // ========== 以下是新增的摄像头专用属性 ==========
+        // ========== 灯光专用属性 ==========
+        /// <summary>亮度 0-100</summary>
+        public int? Brightness { get; set; }
+
+        /// <summary>色温 2700-6500K</summary>
+        public int? ColorTemperature { get; set; }
+
+        // ========== 摄像头专用属性 ==========
         /// <summary>是否录制中</summary>
         public bool? IsRecording { get; set; }
 
@@ -212,9 +219,17 @@ namespace SmartHomeDashboard.Models
             switch (deviceType.ToLower())
             {
                 case "light":
-                case "lock":
                     if (value is bool boolValue)
                         IsOn = boolValue;
+                    else if (value is int brightnessValue)
+                        Brightness = brightnessValue;
+                    else if (value is int colorTempValue)
+                        ColorTemperature = colorTempValue;
+                    break;
+
+                case "lock":
+                    if (value is bool lockBoolValue)
+                        IsOn = lockBoolValue;
                     break;
 
                 case "camera":
@@ -223,10 +238,10 @@ namespace SmartHomeDashboard.Models
                     break;
 
                 case "fan":
-                    if (value is int intValue)
-                        Speed = intValue;
-                    else if (value is bool boolVal)
-                        IsOn = boolVal;
+                    if (value is int fanIntValue)
+                        Speed = fanIntValue;
+                    else if (value is bool fanBoolVal)
+                        IsOn = fanBoolVal;
                     break;
 
                 case "ac":
@@ -300,7 +315,8 @@ namespace SmartHomeDashboard.Models
         {
             return DeviceType switch
             {
-                "light" or "lock" => new { IsOn = telemetry.IsOn },
+                "light" => new { IsOn = telemetry.IsOn, Brightness = telemetry.Brightness, ColorTemperature = telemetry.ColorTemperature },
+                "lock" => new { IsOn = telemetry.IsOn },
                 "camera" => new { IsOn = telemetry.IsOn, MotionDetected = telemetry.MotionDetected, IsRecording = telemetry.IsRecording, NightMode = telemetry.NightMode },
                 "fan" => new { IsOn = telemetry.IsOn, Speed = telemetry.Speed },
                 "ac" => new
