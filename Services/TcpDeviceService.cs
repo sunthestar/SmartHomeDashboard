@@ -42,24 +42,19 @@ namespace SmartHomeDashboard.Services
         public async Task SendCommandAsync(string deviceId, string command, Dictionary<string, object>? parameters = null)
         {
             var fullDeviceId = await GetFullDeviceIdAsync(deviceId);
-            _logger.LogInformation($"发送命令到设备 {fullDeviceId}: {command}, 参数: {System.Text.Json.JsonSerializer.Serialize(parameters)}");
             await _tcpServerService.SendCommandAsync(fullDeviceId, command, parameters);
         }
 
         public async Task TurnOnAsync(string deviceId)
         {
             var fullDeviceId = await GetFullDeviceIdAsync(deviceId);
-            _logger.LogInformation($"发送开启命令到设备: {fullDeviceId}");
-            var parameters = new Dictionary<string, object> { ["isOn"] = true };
-            await SendCommandAsync(fullDeviceId, "set_power", parameters);
+            await SendCommandAsync(fullDeviceId, "turn_on");
         }
 
         public async Task TurnOffAsync(string deviceId)
         {
             var fullDeviceId = await GetFullDeviceIdAsync(deviceId);
-            _logger.LogInformation($"发送关闭命令到设备: {fullDeviceId}");
-            var parameters = new Dictionary<string, object> { ["isOn"] = false };
-            await SendCommandAsync(fullDeviceId, "set_power", parameters);
+            await SendCommandAsync(fullDeviceId, "turn_off");
         }
 
         public async Task SetTemperatureAsync(string deviceId, double temperature)

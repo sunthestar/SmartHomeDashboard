@@ -1504,5 +1504,47 @@ namespace SmartHomeDashboard.Services
             }
             return ("", "", "");
         }
+
+        public async Task<bool> UpdateDeviceBrightnessAsync(int id, int brightness)
+        {
+            try
+            {
+                using var context = await _dbContextFactory.CreateDbContextAsync();
+                var connection = context.Database.GetDbConnection();
+                await connection.OpenAsync();
+
+                var sql = @"UPDATE Devices 
+                   SET Brightness = @brightness, 
+                       Progress = @brightness,
+                       UpdatedAt = @now 
+                   WHERE Id = @id";
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = sql;
+
+                var brightnessParam = cmd.CreateParameter();
+                brightnessParam.ParameterName = "@brightness";
+                brightnessParam.Value = brightness;
+                cmd.Parameters.Add(brightnessParam);
+
+                var nowParam = cmd.CreateParameter();
+                nowParam.ParameterName = "@now";
+                nowParam.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                cmd.Parameters.Add(nowParam);
+
+                var idParam = cmd.CreateParameter();
+                idParam.ParameterName = "@id";
+                idParam.Value = id;
+                cmd.Parameters.Add(idParam);
+
+                await cmd.ExecuteNonQueryAsync();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"更新设备亮度失败 ID: {id}");
+                return false;
+            }
+        }
     }
 }

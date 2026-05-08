@@ -65,6 +65,8 @@ builder.Services.AddSingleton<SystemLogService>();
 builder.Services.AddSingleton<TcpConnectionService>();
 builder.Services.AddSingleton<AIAssistantService>();
 builder.Services.AddHostedService<SceneSchedulerService>();
+builder.Services.Configure<DeepSeekSettings>(builder.Configuration.GetSection("DeepSeek"));
+builder.Services.AddHttpClient();
 
 // 注册后台服务
 try
