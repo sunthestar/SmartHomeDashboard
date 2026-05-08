@@ -321,6 +321,7 @@ namespace SmartHomeDashboard.Models
     }
 
     // 自动化场景模型
+    // 自动化场景模型 - 在原有的 SceneModel 中添加以下字段
     public class SceneModel
     {
         [Key]
@@ -337,7 +338,7 @@ namespace SmartHomeDashboard.Models
         public string Description { get; set; } = "";
 
         [StringLength(50)]
-        public string TriggerType { get; set; } = "manual";
+        public string TriggerType { get; set; } = "manual"; // manual, time, condition
 
         [Column(TypeName = "text")]
         public string TriggerCondition { get; set; } = "{}";
@@ -345,11 +346,27 @@ namespace SmartHomeDashboard.Models
         [Column(TypeName = "text")]
         public string Actions { get; set; } = "[]";
 
+        // 定时触发相关
         [StringLength(50)]
         public string ExecuteTime { get; set; } = "";
 
         [StringLength(50)]
         public string RepeatDays { get; set; } = "";
+
+        // 条件触发相关（新增）
+        [Column(TypeName = "text")]
+        public string Conditions { get; set; } = "[]"; // JSON格式存储条件列表
+
+        [StringLength(20)]
+        public string ConditionLogic { get; set; } = "and"; // and / or
+
+        // 联动触发相关
+        public int? TriggerSceneId { get; set; }
+        public string? TriggerSceneAction { get; set; }
+
+        // 联动目标场景列表（JSON格式）
+        [Column(TypeName = "text")]
+        public string LinkedScenes { get; set; } = "[]";
 
         public bool IsActive { get; set; } = false;
 

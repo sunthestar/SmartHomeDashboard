@@ -64,6 +64,7 @@ builder.Services.AddSingleton<SceneService>();
 builder.Services.AddSingleton<SystemLogService>();
 builder.Services.AddSingleton<TcpConnectionService>();
 builder.Services.AddSingleton<AIAssistantService>();
+builder.Services.AddHostedService<SceneSchedulerService>();
 
 // 注册后台服务
 try

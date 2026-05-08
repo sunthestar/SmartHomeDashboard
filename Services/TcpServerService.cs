@@ -33,18 +33,21 @@ namespace SmartHomeDashboard.Services
         public event EventHandler<TcpDevice>? OnDeviceDisconnected;
         public event EventHandler<TelemetryData>? OnTelemetryReceived;
 
+        // ==================== 构造函数 ====================
         public TcpServerService(
             ILogger<TcpServerService> logger,
             IConfiguration configuration,
             DeviceDataService deviceDataService,
             IHubContext<DeviceHub> hubContext,
-            IDbContextFactory<AppDbContext> dbContextFactory)
+            IDbContextFactory<AppDbContext> dbContextFactory,
+            IServiceProvider serviceProvider)  // 添加 IServiceProvider 参数
         {
             _logger = logger;
             _configuration = configuration;
             _deviceDataService = deviceDataService;
             _hubContext = hubContext;
             _dbContextFactory = dbContextFactory;
+            _serviceProvider = serviceProvider;  // 保存到字段
             _connectedClients = new Dictionary<string, TcpClientInfo>();
             _messageHandlers = new Dictionary<string, Func<TcpMessage, Task>>();
 
@@ -55,6 +58,9 @@ namespace SmartHomeDashboard.Services
 
             RegisterDefaultHandlers();
         }
+
+        // 添加私有字段
+        private readonly IServiceProvider _serviceProvider;
 
         private string GetTypeAbbr(string typeId)
         {
@@ -2482,7 +2488,6 @@ namespace SmartHomeDashboard.Services
                         // ========== 空调设备处理 ==========
                         if (device.TypeIdentifier == "ac")
                         {
-                            // 如果设备当前处于离线状态，收到遥测数据说明上线了
                             if (!isCurrentlyOnline)
                             {
                                 await UpdateDeviceOnlineStatus(device.Id, true, "在线");
@@ -2493,12 +2498,10 @@ namespace SmartHomeDashboard.Services
 
                             if (isCurrentlyOnline)
                             {
-                                // 处理开关状态
                                 if (telemetryData.IsOn.HasValue)
                                 {
                                     await UpdateDevicePowerStatus(device.Id, telemetryData.IsOn.Value);
 
-                                    // 根据开关状态和模式构建状态文本
                                     string statusText;
                                     if (telemetryData.IsOn.Value)
                                     {
@@ -2523,7 +2526,6 @@ namespace SmartHomeDashboard.Services
                                     _logger.LogInformation($"空调 {device.Name} 状态更新为: {statusText}");
                                 }
 
-                                // 处理温度设置
                                 if (telemetryData.Temperature.HasValue)
                                 {
                                     await UpdateDeviceAcTemperature(device.Id, (int)telemetryData.Temperature.Value);
@@ -2531,7 +2533,6 @@ namespace SmartHomeDashboard.Services
                                     _logger.LogInformation($"空调 {device.Name} 温度设置更新为: {telemetryData.Temperature.Value}°C");
                                 }
 
-                                // 处理模式
                                 if (!string.IsNullOrEmpty(telemetryData.Mode))
                                 {
                                     await UpdateDeviceAcMode(device.Id, telemetryData.Mode);
@@ -2539,7 +2540,6 @@ namespace SmartHomeDashboard.Services
                                     _logger.LogInformation($"空调 {device.Name} 模式更新为: {telemetryData.Mode}");
                                 }
 
-                                // 处理其他空调属性
                                 if (telemetryData.SwingVertical.HasValue)
                                 {
                                     await UpdateDeviceSwingVertical(device.Id, telemetryData.SwingVertical.Value);
@@ -2632,7 +2632,6 @@ namespace SmartHomeDashboard.Services
                         // ========== 摄像头设备处理 ==========
                         else if (device.TypeIdentifier == "camera")
                         {
-                            // 如果设备当前处于离线状态，收到遥测数据说明上线了
                             if (!isCurrentlyOnline)
                             {
                                 await UpdateDeviceCameraOnlineStatus(device.Id, true);
@@ -2739,7 +2738,7 @@ namespace SmartHomeDashboard.Services
                             _logger.LogInformation($"湿度传感器 {device.Name} 湿度更新为 {telemetryData.HumidityValue.Value}%");
                         }
 
-                        // 统一处理电量更新（所有设备类型）
+                        // 统一处理电量更新
                         if (telemetryData.BatteryLevel.HasValue)
                         {
                             await UpdateDeviceBatteryLevel(device.Id, telemetryData.BatteryLevel.Value);
@@ -2786,6 +2785,26 @@ namespace SmartHomeDashboard.Services
                                 });
 
                             _logger.LogInformation($"已推送设备更新到前端: {message.DeviceId}");
+
+                            // ========== 实时触发条件场景检查 ==========
+                            // 如果是传感器数据更新，立即触发条件场景检查
+                            if (telemetryData.TemperatureValue.HasValue || telemetryData.HumidityValue.HasValue)
+                            {
+                                _ = Task.Run(async () =>
+                                {
+                                    try
+                                    {
+                                        using var scope = _serviceProvider.CreateScope();
+                                        var sceneService = scope.ServiceProvider.GetRequiredService<SceneService>();
+                                        await sceneService.CheckAndExecuteConditionScenesAsync();
+                                        _logger.LogDebug("实时条件场景检查已完成");
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogError(ex, "实时检查条件场景失败");
+                                    }
+                                });
+                            }
                         }
                     }
                 }
@@ -2911,27 +2930,28 @@ namespace SmartHomeDashboard.Services
 
             if (!_connectedClients.ContainsKey(deviceId))
             {
+                _logger.LogWarning($"设备 {deviceId} 不在线，当前连接列表: {string.Join(", ", _connectedClients.Keys)}");
                 throw new Exception($"设备 {deviceId} 不在线");
             }
 
-            var commandData = new CommandData
+            // 构建命令数据
+            var commandData = new
             {
-                CommandId = $"cmd-{DateTime.Now.Ticks}",
-                Command = command,
-                Parameters = parameters ?? new(),
-                Source = "server"
+                command = command,
+                parameters = parameters ?? new Dictionary<string, object>(),
+                commandId = $"cmd-{DateTime.Now.Ticks}"
             };
 
             var message = new TcpMessage
             {
-                MessageId = commandData.CommandId,
+                MessageId = $"cmd-{DateTime.Now.Ticks}",
                 Type = "command",
                 DeviceId = deviceId,
                 Data = commandData
             };
 
             await SendToClientAsync(deviceId, message);
-            _logger.LogInformation($"发送命令到设备 {deviceId}: {command}");
+            _logger.LogInformation($"命令已发送到设备 {deviceId}: {command}, 参数: {System.Text.Json.JsonSerializer.Serialize(parameters)}");
         }
 
         private async Task SendToClientAsync(string deviceId, TcpMessage message)

@@ -914,7 +914,9 @@ function updateDevicesIncremental(devices) {
 
     const newDevices = devices.filter(d => !currentDeviceIds.has(d.id));
     const removedDeviceIds = Array.from(currentDeviceIds).filter(id => !devices.some(d => d.id === id));
+    const updatedDevices = devices.filter(d => currentDeviceIds.has(d.id));
 
+    // 处理删除的设备
     removedDeviceIds.forEach(id => {
         const card = document.querySelector(`.device-item[data-id="${id}"]`);
         if (card) {
@@ -928,11 +930,13 @@ function updateDevicesIncremental(devices) {
                     calculateTotalPower();
                     calculateAverageRoomTemp();
                     calculateAverageHumidity();
+                    showNotification(`设备已删除`, 'info');
                 }
             }, 300);
         }
     });
 
+    // 处理新增的设备 - 动态添加到页面
     if (newDevices.length > 0) {
         console.log(`发现 ${newDevices.length} 个新设备，动态添加中...`);
         const deviceGrid = document.getElementById('deviceGrid');
@@ -960,12 +964,24 @@ function updateDevicesIncremental(devices) {
         showNotification(`发现 ${newDevices.length} 个新设备，已自动添加`, 'success');
     }
 
-    devices.forEach(device => {
-        const card = document.querySelector(`.device-item[data-id="${device.id}"]`);
-        if (card) {
-            updateDeviceCard(card, device);
+    // 处理更新的设备
+    if (updatedDevices.length > 0) {
+        let statusChangedCount = 0;
+        updatedDevices.forEach(device => {
+            const card = document.querySelector(`.device-item[data-id="${device.id}"]`);
+            if (card) {
+                const oldStatus = card.querySelector('.status-text')?.textContent;
+                updateDeviceCard(card, device);
+                const newStatus = card.querySelector('.status-text')?.textContent;
+                if (oldStatus !== newStatus) {
+                    statusChangedCount++;
+                }
+            }
+        });
+        if (statusChangedCount > 0) {
+            console.log(`${statusChangedCount} 个设备状态已更新`);
         }
-    });
+    }
 
     updateDeviceStats();
     calculateTotalPower();
@@ -987,10 +1003,13 @@ function showNotification(message, type, duration = 3000) {
                 color:white;
                 border-radius:8px;
                 box-shadow:0 4px 12px rgba(0,0,0,0.15);
-                z-index:9999;
+                z-index:10000;
                 opacity:0;
                 transform:translateX(100%);
-                transition:all 0.3s ease
+                transition:all 0.3s ease;
+                font-size:0.9rem;
+                max-width:350px;
+                word-wrap:break-word;
             }
             .smart-notification.show{
                 opacity:1;
@@ -1012,16 +1031,29 @@ function showNotification(message, type, duration = 3000) {
         document.head.appendChild(style);
     }
 
+    // 移除旧的通知（避免堆积）
+    const oldNotifications = document.querySelectorAll('.smart-notification');
+    oldNotifications.forEach(notif => {
+        if (notif.parentNode) {
+            notif.parentNode.removeChild(notif);
+        }
+    });
+
     const notification = document.createElement('div');
     notification.className = `smart-notification ${type}`;
-    notification.textContent = message;
+    notification.innerHTML = message;
     document.body.appendChild(notification);
+
+    // 强制重绘
+    notification.offsetHeight;
 
     setTimeout(() => notification.classList.add('show'), 10);
     setTimeout(() => {
         notification.classList.remove('show');
         setTimeout(() => {
-            if (notification.parentNode) document.body.removeChild(notification);
+            if (notification.parentNode) {
+                document.body.removeChild(notification);
+            }
         }, 300);
     }, duration);
 }
@@ -1044,7 +1076,6 @@ function deviceClickHandler(e) {
     const card = e.target.closest('.device-item');
     if (!card) return;
 
-    // 点击删除按钮时，不打开设置
     if (e.target.closest('.delete-device')) {
         console.log('点击删除按钮，不打开设置');
         return;
@@ -1751,11 +1782,12 @@ function initSignalR() {
     signalRConnection.start()
         .then(() => {
             console.log("SignalR 连接成功");
+            showNotification('实时连接成功，设备状态将自动同步', 'success');
             refreshDeviceListFromServer();
         })
         .catch(err => {
             console.error("SignalR 连接失败:", err.toString());
-            showNotification('实时连接失败', 'error');
+            showNotification('实时连接失败，请刷新页面重试', 'error');
         });
 }
 
@@ -1771,63 +1803,760 @@ async function refreshDeviceListFromServer() {
     }
 }
 
-// ==================== 自动化场景功能 ====================
-function loadAutomationStates() {
-    const savedStates = localStorage.getItem('automationStates');
-    if (savedStates) {
-        const states = JSON.parse(savedStates);
-        document.querySelectorAll('.toggle-switch').forEach(toggle => {
-            const sceneId = toggle.dataset.sceneId;
-            if (states[sceneId] !== undefined) {
-                if (states[sceneId]) {
-                    toggle.classList.add('active');
-                    toggle.classList.remove('inactive');
+// ==================== 智能场景触发功能 ====================
+function initSceneTriggers() {
+    document.querySelectorAll('.trigger-scene-btn').forEach(btn => {
+        btn.addEventListener('click', async function (e) {
+            e.stopPropagation();
+            const sceneItem = this.closest('.scene-item');
+            const sceneId = this.dataset.sceneId;
+            const sceneName = sceneItem?.dataset.sceneName || '';
+
+            // 禁用按钮，防止重复点击
+            this.disabled = true;
+            const originalHtml = this.innerHTML;
+            this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 执行中...';
+
+            showNotification(`正在执行场景 "${sceneName}"...`, 'info');
+
+            try {
+                const response = await fetch(`/api/scenes/execute/${sceneId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    addAutomationLog(sceneName, '执行');
+                    showNotification(`✅ 场景 "${sceneName}" 执行成功: ${data.message}`, 'success');
                 } else {
-                    toggle.classList.remove('active');
-                    toggle.classList.add('inactive');
+                    if (data.offlineDevices && data.offlineDevices.length > 0) {
+                        const offlineMsg = `⚠️ 以下设备离线: ${data.offlineDevices.join(', ')}。是否继续执行？（在线设备将正常执行）`;
+                        if (confirm(offlineMsg)) {
+                            const confirmResponse = await fetch(`/api/scenes/execute/${sceneId}/confirm`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ skipDeviceTypes: data.offlineDevices })
+                            });
+                            const confirmData = await confirmResponse.json();
+                            if (confirmData.success) {
+                                addAutomationLog(sceneName, '执行');
+                                showNotification(`✅ ${confirmData.message}`, 'success');
+                            } else {
+                                showNotification(`❌ ${confirmData.message || '场景执行失败'}`, 'error');
+                            }
+                        } else {
+                            showNotification(`场景 "${sceneName}" 未执行`, 'warning');
+                        }
+                    } else {
+                        showNotification(`❌ ${data.message || '场景执行失败'}`, 'error');
+                    }
                 }
+            } catch (error) {
+                console.error('执行场景失败:', error);
+                showNotification('❌ 执行场景失败，请检查网络连接', 'error');
+            } finally {
+                // 恢复按钮状态
+                this.disabled = false;
+                this.innerHTML = originalHtml;
+            }
+        });
+    });
+}
+
+// ==================== 智能场景管理功能 ====================
+let cachedDevices = [];
+
+async function fetchOnlineDevices() {
+    try {
+        const response = await fetch('/api/devices/list');
+        const data = await response.json();
+        if (data.success && data.devices) {
+            cachedDevices = data.devices.filter(d => d.statusText !== "离线");
+            console.log(`获取到 ${cachedDevices.length} 个在线设备`);
+            return cachedDevices;
+        }
+        return [];
+    } catch (error) {
+        console.error('获取设备列表失败:', error);
+        return [];
+    }
+}
+
+// 加载传感器设备用于条件触发
+async function loadSensorDevices() {
+    try {
+        const response = await fetch('/api/devices/list');
+        const data = await response.json();
+        if (data.success && data.devices) {
+            return data.devices.filter(d => d.typeIdentifier === 'temp-sensor' || d.typeIdentifier === 'humidity-sensor');
+        }
+        return [];
+    } catch (error) {
+        console.error('加载传感器设备失败:', error);
+        return [];
+    }
+}
+
+function getDeviceDisplayName(device) {
+    let roomName = device.roomIdentifier || '未知房间';
+    const room = roomData.find(r => r.roomId === device.roomIdentifier);
+    if (room) {
+        roomName = room.roomName;
+    }
+    return `${roomName} ${device.name}`;
+}
+
+function buildDeviceOptions(devices, selectedDeviceId = null) {
+    let html = '<option value="">请选择设备</option>';
+    devices.forEach(device => {
+        const displayName = getDeviceDisplayName(device);
+        const selected = selectedDeviceId === device.fullDeviceId ? 'selected' : '';
+        html += `<option value="${device.fullDeviceId}" data-type="${device.typeIdentifier}" ${selected}>${escapeHtml(displayName)}</option>`;
+    });
+    return html;
+}
+
+async function refreshDeviceSelect(selectElement, selectedDeviceId = null) {
+    const devices = await fetchOnlineDevices();
+    selectElement.innerHTML = buildDeviceOptions(devices, selectedDeviceId);
+}
+
+// 刷新条件触发设备下拉框
+async function refreshConditionDeviceSelect(selectElement, selectedDeviceId = null) {
+    const devices = await loadSensorDevices();
+    let html = '<option value="">选择传感器设备</option>';
+    devices.forEach(device => {
+        const displayName = getDeviceDisplayName(device);
+        const selected = selectedDeviceId === device.fullDeviceId ? 'selected' : '';
+        html += `<option value="${device.fullDeviceId}" data-type="${device.typeIdentifier}" ${selected}>${escapeHtml(displayName)}</option>`;
+    });
+    selectElement.innerHTML = html;
+}
+
+function getActionOptionsByDeviceType(deviceType) {
+    switch (deviceType) {
+        case 'ac':
+            return '<option value="on">开启</option><option value="off">关闭</option><option value="set_temperature">设置温度</option><option value="set_mode">设置模式</option>';
+        case 'fan':
+            return '<option value="on">开启</option><option value="off">关闭</option><option value="set_speed">设置风速</option>';
+        case 'light':
+            return '<option value="on">开启</option><option value="off">关闭</option><option value="set_brightness">调节亮度</option>';
+        default:
+            return '<option value="on">开启</option><option value="off">关闭</option>';
+    }
+}
+
+function requiresParameter(deviceType, action) {
+    if (deviceType === 'ac' && action === 'set_temperature') return true;
+    if (deviceType === 'ac' && action === 'set_mode') return true;
+    if (deviceType === 'fan' && action === 'set_speed') return true;
+    if (deviceType === 'light' && action === 'set_brightness') return true;
+    return false;
+}
+
+function getParameterPlaceholder(deviceType, action) {
+    if (deviceType === 'ac' && action === 'set_temperature') return '温度(16-30)';
+    if (deviceType === 'ac' && action === 'set_mode') return '模式(cool/heat/fan/dry/auto)';
+    if (deviceType === 'fan' && action === 'set_speed') return '风速(1-5)';
+    if (deviceType === 'light' && action === 'set_brightness') return '亮度(0-100)';
+    return '参数';
+}
+
+function addSceneAction(actionData = null) {
+    const actionsList = document.getElementById('sceneActionsList');
+    const newAction = document.createElement('div');
+    newAction.className = 'scene-action-item';
+    newAction.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
+    newAction.innerHTML = `
+        <select class="action-device-select" style="flex: 3; padding: 8px; border-radius: 8px; border: 1px solid #b9cfec;">
+            <option value="">加载设备中...</option>
+        </select>
+        <select class="action-type" style="flex: 2; padding: 8px; border-radius: 8px; border: 1px solid #b9cfec;">
+            <option value="on">开启</option>
+            <option value="off">关闭</option>
+        </select>
+        <input type="text" class="action-value" placeholder="参数" style="flex: 2; padding: 8px; border-radius: 8px; border: 1px solid #b9cfec; display: none;">
+        <button type="button" class="remove-action-btn" style="background: #ff6b6b; color: white; border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer;">删除</button>
+    `;
+
+    actionsList.appendChild(newAction);
+
+    const deviceSelect = newAction.querySelector('.action-device-select');
+    const actionTypeSelect = newAction.querySelector('.action-type');
+    const actionValueInput = newAction.querySelector('.action-value');
+
+    refreshDeviceSelect(deviceSelect).then(() => {
+        if (actionData) {
+            const option = Array.from(deviceSelect.options).find(opt => opt.value === actionData.deviceId);
+            if (option) {
+                deviceSelect.value = actionData.deviceId;
+                const deviceType = option.dataset.type;
+                actionTypeSelect.innerHTML = getActionOptionsByDeviceType(deviceType);
+                actionTypeSelect.value = actionData.action || 'on';
+                if (actionData.value) {
+                    actionValueInput.value = actionData.value;
+                    actionValueInput.style.display = 'block';
+                }
+            }
+        }
+    });
+
+    deviceSelect.addEventListener('change', function () {
+        const selectedOption = this.options[this.selectedIndex];
+        const deviceType = selectedOption?.dataset.type;
+        if (deviceType) {
+            actionTypeSelect.innerHTML = getActionOptionsByDeviceType(deviceType);
+        }
+        actionTypeSelect.dispatchEvent(new Event('change'));
+    });
+
+    actionTypeSelect.addEventListener('change', function () {
+        const selectedOption = deviceSelect.options[deviceSelect.selectedIndex];
+        const deviceType = selectedOption?.dataset.type;
+        const action = this.value;
+
+        if (deviceType && requiresParameter(deviceType, action)) {
+            actionValueInput.style.display = 'block';
+            actionValueInput.placeholder = getParameterPlaceholder(deviceType, action);
+        } else {
+            actionValueInput.style.display = 'none';
+            actionValueInput.value = '';
+        }
+    });
+
+    newAction.querySelector('.remove-action-btn').addEventListener('click', function () {
+        newAction.remove();
+    });
+}
+
+function addSceneActionWithData(actionData, devices) {
+    const actionsList = document.getElementById('sceneActionsList');
+    const newAction = document.createElement('div');
+    newAction.className = 'scene-action-item';
+    newAction.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
+    newAction.innerHTML = `
+        <select class="action-device-select" style="flex: 3; padding: 8px; border-radius: 8px; border: 1px solid #b9cfec;">
+            ${buildDeviceOptions(devices, actionData.deviceId)}
+        </select>
+        <select class="action-type" style="flex: 2; padding: 8px; border-radius: 8px; border: 1px solid #b9cfec;">
+            ${getActionOptionsByDeviceType(actionData.deviceType)}
+        </select>
+        <input type="text" class="action-value" placeholder="参数" style="flex: 2; padding: 8px; border-radius: 8px; border: 1px solid #b9cfec; display: ${actionData.value ? 'block' : 'none'};" value="${escapeHtml(actionData.value || '')}">
+        <button type="button" class="remove-action-btn" style="background: #ff6b6b; color: white; border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer;">删除</button>
+    `;
+
+    const deviceSelect = newAction.querySelector('.action-device-select');
+    const actionTypeSelect = newAction.querySelector('.action-type');
+    const actionValueInput = newAction.querySelector('.action-value');
+
+    actionTypeSelect.value = actionData.action || 'on';
+
+    deviceSelect.addEventListener('change', function () {
+        const selectedOption = this.options[this.selectedIndex];
+        const deviceType = selectedOption?.dataset.type;
+        if (deviceType) {
+            actionTypeSelect.innerHTML = getActionOptionsByDeviceType(deviceType);
+        }
+        actionTypeSelect.dispatchEvent(new Event('change'));
+    });
+
+    actionTypeSelect.addEventListener('change', function () {
+        const selectedOption = deviceSelect.options[deviceSelect.selectedIndex];
+        const deviceType = selectedOption?.dataset.type;
+        const action = this.value;
+
+        if (deviceType && requiresParameter(deviceType, action)) {
+            actionValueInput.style.display = 'block';
+            actionValueInput.placeholder = getParameterPlaceholder(deviceType, action);
+        } else {
+            actionValueInput.style.display = 'none';
+            actionValueInput.value = '';
+        }
+    });
+
+    actionsList.appendChild(newAction);
+
+    newAction.querySelector('.remove-action-btn').addEventListener('click', function () {
+        newAction.remove();
+    });
+}
+
+// 添加条件
+function addCondition(conditionData = null, sensorDevices = []) {
+    const conditionList = document.getElementById('conditionList');
+    const newItem = document.createElement('div');
+    newItem.className = 'condition-item';
+    newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
+
+    let deviceOptions = '<option value="">选择传感器设备</option>';
+    sensorDevices.forEach(device => {
+        const displayName = getDeviceDisplayName(device);
+        const selected = conditionData && conditionData.deviceId === device.fullDeviceId ? 'selected' : '';
+        deviceOptions += `<option value="${device.fullDeviceId}" data-type="${device.typeIdentifier}" ${selected}>${escapeHtml(displayName)}</option>`;
+    });
+
+    newItem.innerHTML = `
+        <select class="condition-device" style="flex: 2; padding: 8px; border-radius: 8px; border: 1px solid #b9cfec;">
+            ${deviceOptions}
+        </select>
+        <select class="condition-operator" style="flex: 1; padding: 8px; border-radius: 8px; border: 1px solid #b9cfec;">
+            <option value=">" ${conditionData?.operator === '>' ? 'selected' : ''}>大于</option>
+            <option value="<" ${conditionData?.operator === '<' ? 'selected' : ''}>小于</option>
+            <option value="=" ${conditionData?.operator === '=' ? 'selected' : ''}>等于</option>
+            <option value=">=" ${conditionData?.operator === '>=' ? 'selected' : ''}>大于等于</option>
+            <option value="<=" ${conditionData?.operator === '<=' ? 'selected' : ''}>小于等于</option>
+        </select>
+        <input type="text" class="condition-value" placeholder="阈值" style="flex: 1; padding: 8px; border-radius: 8px; border: 1px solid #b9cfec;" value="${conditionData?.value || ''}">
+        <button type="button" class="remove-condition-btn" style="background: #ff6b6b; color: white; border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer;">删除</button>
+    `;
+
+    conditionList.appendChild(newItem);
+
+    newItem.querySelector('.remove-condition-btn').addEventListener('click', function () {
+        newItem.remove();
+    });
+}
+
+// 加载可用场景列表用于联动
+async function loadAvailableScenesForLink(excludeId = 0) {
+    try {
+        const response = await fetch(`/api/scenes/available-for-link?excludeId=${excludeId}`);
+        const data = await response.json();
+        if (data.success) {
+            return data.scenes;
+        }
+        return [];
+    } catch (error) {
+        console.error('加载场景列表失败:', error);
+        return [];
+    }
+}
+
+// 添加联动场景
+function addLinkedScene(sceneData = null, availableScenes = []) {
+    const linkedList = document.getElementById('linkedScenesList');
+    const newItem = document.createElement('div');
+    newItem.className = 'linked-scene-item';
+    newItem.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; align-items: center;';
+
+    let sceneOptions = '<option value="">请选择联动场景</option>';
+    availableScenes.forEach(scene => {
+        const selected = sceneData && sceneData.sceneId === scene.id ? 'selected' : '';
+        sceneOptions += `<option value="${scene.id}" ${selected}>${escapeHtml(scene.sceneName)}</option>`;
+    });
+
+    newItem.innerHTML = `
+        <select class="linked-scene-select" style="flex: 3; padding: 8px; border-radius: 8px; border: 1px solid #b9cfec;">
+            ${sceneOptions}
+        </select>
+        <select class="linked-scene-action" style="flex: 2; padding: 8px; border-radius: 8px; border: 1px solid #b9cfec;">
+            <option value="execute" ${sceneData?.action === 'execute' ? 'selected' : ''}>执行场景</option>
+            <option value="enable" ${sceneData?.action === 'enable' ? 'selected' : ''}>启用场景</option>
+            <option value="disable" ${sceneData?.action === 'disable' ? 'selected' : ''}>禁用场景</option>
+            <option value="toggle" ${sceneData?.action === 'toggle' ? 'selected' : ''}>切换启用状态</option>
+        </select>
+        <button type="button" class="remove-linked-btn" style="background: #ff6b6b; color: white; border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer;">删除</button>
+    `;
+
+    linkedList.appendChild(newItem);
+
+    newItem.querySelector('.remove-linked-btn').addEventListener('click', function () {
+        newItem.remove();
+    });
+}
+
+// 触发方式切换
+function initTriggerTypeSelector() {
+    const radioButtons = document.querySelectorAll('input[name="triggerType"]');
+    const timeSettings = document.getElementById('timeTriggerSettings');
+    const conditionSettings = document.getElementById('conditionTriggerSettings');
+
+    if (!radioButtons.length) return;
+
+    radioButtons.forEach(radio => {
+        radio.addEventListener('change', function () {
+            if (timeSettings) timeSettings.style.display = 'none';
+            if (conditionSettings) conditionSettings.style.display = 'none';
+
+            if (this.value === 'time' && timeSettings) {
+                timeSettings.style.display = 'block';
+            } else if (this.value === 'condition' && conditionSettings) {
+                conditionSettings.style.display = 'block';
+                // 加载传感器设备
+                loadSensorDevices().then(devices => {
+                    const deviceSelects = document.querySelectorAll('.condition-device');
+                    if (deviceSelects.length === 1 && deviceSelects[0].options.length === 1) {
+                        refreshConditionDeviceSelect(deviceSelects[0]);
+                    }
+                });
+            }
+        });
+    });
+}
+
+function initSceneManagement() {
+    const addSceneBtn = document.getElementById('addSceneBtn');
+    if (addSceneBtn) {
+        addSceneBtn.addEventListener('click', () => openSceneModal());
+    }
+
+    const sceneList = document.getElementById('sceneList');
+    if (sceneList) {
+        sceneList.addEventListener('click', (e) => {
+            const editIcon = e.target.closest('.edit-scene-icon');
+            const deleteIcon = e.target.closest('.delete-scene-icon');
+            const triggerBtn = e.target.closest('.trigger-scene-btn');
+            const sceneItem = e.target.closest('.scene-item');
+
+            if (triggerBtn) {
+                return;
+            }
+
+            if (editIcon && sceneItem) {
+                const sceneId = sceneItem.dataset.sceneId;
+                openSceneModal(sceneId);
+                e.stopPropagation();
+            } else if (deleteIcon && sceneItem) {
+                const sceneId = sceneItem.dataset.sceneId;
+                const sceneName = sceneItem.dataset.sceneName;
+                deleteScene(sceneId, sceneName);
+                e.stopPropagation();
             }
         });
     }
-    updateActiveScenesCount();
-}
 
-function saveAutomationStates() {
-    const states = {};
-    document.querySelectorAll('.toggle-switch').forEach(toggle => {
-        states[toggle.dataset.sceneId] = toggle.classList.contains('active');
-    });
-    localStorage.setItem('automationStates', JSON.stringify(states));
-}
-
-function updateActiveScenesCount() {
-    const activeScenes = document.querySelectorAll('.toggle-switch.active').length;
-    const badge = document.getElementById('activeScenesCount');
-    if (badge) badge.textContent = activeScenes + ' 执行中';
-}
-
-function initAutomationToggles() {
-    document.querySelectorAll('.toggle-switch').forEach(toggle => {
-        toggle.addEventListener('click', function (e) {
-            e.stopPropagation();
-            const sceneItem = this.closest('.scene-item');
-            const sceneName = sceneItem?.dataset.sceneName || sceneItem?.querySelector('.scene-left span')?.textContent || '';
-            const isActive = this.classList.contains('active');
-
-            if (isActive) {
-                this.classList.remove('active');
-                this.classList.add('inactive');
-            } else {
-                this.classList.remove('inactive');
-                this.classList.add('active');
-            }
-
-            saveAutomationStates();
-            updateActiveScenesCount();
-            addAutomationLog(sceneName, !isActive ? '启用' : '禁用');
-            showNotification(`自动化场景 "${sceneName}" 已${!isActive ? '启用' : '禁用'}`, 'info');
+    document.querySelectorAll('.close-scene-modal').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.getElementById('sceneModal').style.display = 'none';
         });
     });
+
+    const addActionBtn = document.getElementById('addActionBtn');
+    if (addActionBtn) {
+        addActionBtn.addEventListener('click', () => addSceneAction());
+    }
+
+    const saveSceneBtn = document.getElementById('saveSceneBtn');
+    if (saveSceneBtn) {
+        saveSceneBtn.addEventListener('click', saveScene);
+    }
+
+    // 添加联动场景按钮
+    const addLinkedSceneBtn = document.getElementById('addLinkedSceneBtn');
+    if (addLinkedSceneBtn) {
+        addLinkedSceneBtn.addEventListener('click', async () => {
+            const availableScenes = await loadAvailableScenesForLink(document.getElementById('sceneId').value || 0);
+            addLinkedScene(null, availableScenes);
+        });
+    }
+
+    // 添加条件按钮
+    const addConditionBtn = document.getElementById('addConditionBtn');
+    if (addConditionBtn) {
+        addConditionBtn.addEventListener('click', async () => {
+            const devices = await loadSensorDevices();
+            addCondition(null, devices);
+        });
+    }
+
+    document.querySelectorAll('.icon-option').forEach(icon => {
+        icon.addEventListener('click', function () {
+            document.querySelectorAll('.icon-option').forEach(i => i.classList.remove('selected'));
+            this.classList.add('selected');
+            document.getElementById('sceneIcon').value = this.dataset.icon;
+        });
+    });
+}
+
+async function openSceneModal(sceneId = null) {
+    const modal = document.getElementById('sceneModal');
+    const title = document.getElementById('sceneModalTitle');
+    const form = document.getElementById('sceneForm');
+
+    form.reset();
+    document.getElementById('sceneId').value = '0';
+    document.getElementById('sceneIcon').value = 'fa-home';
+
+    // 重置触发方式
+    const manualRadio = document.querySelector('input[name="triggerType"][value="manual"]');
+    if (manualRadio) manualRadio.checked = true;
+    const timeSettings = document.getElementById('timeTriggerSettings');
+    const conditionSettings = document.getElementById('conditionTriggerSettings');
+    if (timeSettings) timeSettings.style.display = 'none';
+    if (conditionSettings) conditionSettings.style.display = 'none';
+    document.getElementById('sceneExecuteTime').value = '';
+    document.querySelectorAll('#timeTriggerSettings input[type="checkbox"]').forEach(cb => {
+        cb.checked = false;
+    });
+
+    // 清空条件列表
+    const conditionList = document.getElementById('conditionList');
+    if (conditionList) conditionList.innerHTML = '';
+
+    const actionsList = document.getElementById('sceneActionsList');
+    if (actionsList) {
+        actionsList.innerHTML = '';
+        addSceneAction();
+    }
+
+    const linkedList = document.getElementById('linkedScenesList');
+    if (linkedList) linkedList.innerHTML = '';
+
+    // 加载可用场景用于联动
+    const availableScenes = await loadAvailableScenesForLink(sceneId || 0);
+    const sensorDevices = await loadSensorDevices();
+
+    document.querySelectorAll('.icon-option').forEach(icon => {
+        icon.classList.remove('selected');
+        if (icon.dataset.icon === 'fa-home') {
+            icon.classList.add('selected');
+        }
+    });
+
+    if (sceneId) {
+        title.textContent = '编辑智能场景';
+        await loadSceneData(sceneId, availableScenes, sensorDevices);
+    } else {
+        title.textContent = '添加智能场景';
+    }
+
+    modal.style.display = 'flex';
+}
+
+async function loadSceneData(sceneId, availableScenes, sensorDevices) {
+    try {
+        const response = await fetch(`/api/scenes/${sceneId}`);
+        const data = await response.json();
+        if (data.success) {
+            const scene = data.scene;
+            document.getElementById('sceneId').value = scene.id;
+            document.getElementById('sceneName').value = scene.sceneName;
+            document.getElementById('sceneDescription').value = scene.description || '';
+
+            // 设置触发方式
+            const triggerType = scene.triggerType || 'manual';
+            const radio = document.querySelector(`input[name="triggerType"][value="${triggerType}"]`);
+            if (radio) radio.checked = true;
+
+            // 定时设置
+            if (scene.executeTime) {
+                document.getElementById('sceneExecuteTime').value = scene.executeTime;
+            }
+            if (scene.repeatDays) {
+                const days = scene.repeatDays.split(',');
+                document.querySelectorAll('#timeTriggerSettings input[type="checkbox"]').forEach(cb => {
+                    cb.checked = days.includes(cb.value);
+                });
+            }
+
+            // 条件设置
+            if (scene.conditions && scene.conditions.length > 0) {
+                const conditionList = document.getElementById('conditionList');
+                if (conditionList) conditionList.innerHTML = '';
+                scene.conditions.forEach(condition => {
+                    addCondition(condition, sensorDevices);
+                });
+                const conditionLogic = document.getElementById('conditionLogic');
+                if (conditionLogic && scene.conditionLogic) {
+                    conditionLogic.value = scene.conditionLogic;
+                }
+            }
+
+            // 显示对应的设置面板
+            if (triggerType === 'time') {
+                const timeSettings = document.getElementById('timeTriggerSettings');
+                if (timeSettings) timeSettings.style.display = 'block';
+            } else if (triggerType === 'condition') {
+                const conditionSettings = document.getElementById('conditionTriggerSettings');
+                if (conditionSettings) conditionSettings.style.display = 'block';
+                if (scene.conditions && scene.conditions.length === 0) {
+                    addCondition(null, sensorDevices);
+                }
+            }
+
+            const icon = scene.icon || 'fa-home';
+            document.getElementById('sceneIcon').value = icon;
+            document.querySelectorAll('.icon-option').forEach(opt => {
+                opt.classList.remove('selected');
+                if (opt.dataset.icon === icon) {
+                    opt.classList.add('selected');
+                }
+            });
+
+            const actionsList = document.getElementById('sceneActionsList');
+            if (actionsList) {
+                actionsList.innerHTML = '';
+                const actions = scene.actions || [];
+
+                if (actions.length === 0) {
+                    addSceneAction();
+                } else {
+                    const devices = await fetchOnlineDevices();
+                    actions.forEach(action => {
+                        addSceneActionWithData(action, devices);
+                    });
+                }
+            }
+
+            const linkedList = document.getElementById('linkedScenesList');
+            if (linkedList) {
+                linkedList.innerHTML = '';
+                const linkedScenes = scene.linkedScenes || [];
+                linkedScenes.forEach(link => {
+                    addLinkedScene(link, availableScenes);
+                });
+            }
+        }
+    } catch (error) {
+        console.error('加载场景数据失败:', error);
+        showNotification('加载场景数据失败', 'error');
+    }
+}
+
+async function saveScene() {
+    const sceneId = document.getElementById('sceneId').value;
+    const sceneName = document.getElementById('sceneName').value;
+    const sceneIcon = document.getElementById('sceneIcon').value;
+    const sceneDescription = document.getElementById('sceneDescription').value;
+
+    // 获取触发方式
+    const selectedRadio = document.querySelector('input[name="triggerType"]:checked');
+    const triggerType = selectedRadio ? selectedRadio.value : 'manual';
+    let executeTime = '';
+    let repeatDays = '';
+    let conditions = [];
+    let conditionLogic = 'and';
+
+    if (triggerType === 'time') {
+        executeTime = document.getElementById('sceneExecuteTime').value;
+        const days = [];
+        document.querySelectorAll('#timeTriggerSettings input[type="checkbox"]:checked').forEach(cb => {
+            days.push(cb.value);
+        });
+        repeatDays = days.join(',');
+    } else if (triggerType === 'condition') {
+        const conditionItems = document.querySelectorAll('#conditionList .condition-item');
+        conditionItems.forEach(item => {
+            const deviceSelect = item.querySelector('.condition-device');
+            const operator = item.querySelector('.condition-operator').value;
+            const value = item.querySelector('.condition-value').value;
+            const selectedOption = deviceSelect.options[deviceSelect.selectedIndex];
+
+            if (deviceSelect.value && value) {
+                conditions.push({
+                    deviceId: deviceSelect.value,
+                    deviceName: selectedOption.textContent,
+                    deviceType: selectedOption.dataset.type,
+                    operator: operator,
+                    value: value
+                });
+            }
+        });
+        const logicSelect = document.getElementById('conditionLogic');
+        if (logicSelect) conditionLogic = logicSelect.value;
+    }
+
+    // 获取操作列表
+    const actions = [];
+    const actionItems = document.querySelectorAll('#sceneActionsList .scene-action-item');
+
+    for (const item of actionItems) {
+        const deviceSelect = item.querySelector('.action-device-select');
+        const actionType = item.querySelector('.action-type').value;
+        const actionValue = item.querySelector('.action-value').value;
+        const selectedOption = deviceSelect.options[deviceSelect.selectedIndex];
+
+        if (!deviceSelect.value) {
+            showNotification('请为每个操作选择设备', 'warning');
+            return;
+        }
+
+        actions.push({
+            deviceId: deviceSelect.value,
+            deviceName: selectedOption.textContent,
+            deviceType: selectedOption.dataset.type,
+            action: actionType,
+            value: actionValue || null
+        });
+    }
+
+    if (actions.length === 0) {
+        showNotification('请至少添加一个操作', 'warning');
+        return;
+    }
+
+    // 获取联动场景
+    const linkedScenes = [];
+    const linkedItems = document.querySelectorAll('#linkedScenesList .linked-scene-item');
+    for (const item of linkedItems) {
+        const sceneSelect = item.querySelector('.linked-scene-select');
+        const actionSelect = item.querySelector('.linked-scene-action');
+        const selectedOption = sceneSelect.options[sceneSelect.selectedIndex];
+
+        if (sceneSelect.value) {
+            linkedScenes.push({
+                sceneId: parseInt(sceneSelect.value),
+                sceneName: selectedOption.textContent,
+                action: actionSelect.value
+            });
+        }
+    }
+
+    const sceneData = {
+        id: parseInt(sceneId) || 0,
+        sceneName: sceneName,
+        icon: sceneIcon,
+        description: sceneDescription,
+        triggerType: triggerType,
+        executeTime: executeTime,
+        repeatDays: repeatDays,
+        conditions: conditions,
+        conditionLogic: conditionLogic,
+        actions: actions,
+        linkedScenes: linkedScenes
+    };
+
+    try {
+        const response = await fetch('/api/scenes/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sceneData)
+        });
+        const data = await response.json();
+        if (data.success) {
+            showNotification('场景保存成功', 'success');
+            document.getElementById('sceneModal').style.display = 'none';
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showNotification('保存失败: ' + data.message, 'error');
+        }
+    } catch (error) {
+        console.error('保存场景失败:', error);
+        showNotification('保存场景失败', 'error');
+    }
+}
+
+async function deleteScene(sceneId, sceneName) {
+    if (confirm(`确定要删除场景 "${sceneName}" 吗？`)) {
+        try {
+            const response = await fetch(`/api/scenes/delete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: parseInt(sceneId) })
+            });
+            const data = await response.json();
+            if (data.success) {
+                showNotification('场景删除成功', 'success');
+                setTimeout(() => location.reload(), 500);
+            } else {
+                showNotification('删除失败: ' + data.message, 'error');
+            }
+        } catch (error) {
+            console.error('删除场景失败:', error);
+            showNotification('删除场景失败', 'error');
+        }
+    }
 }
 
 // ==================== 日志功能 ====================
@@ -2160,7 +2889,6 @@ document.addEventListener('DOMContentLoaded', function () {
     if (typeof deviceTypeData === 'undefined') deviceTypeData = [];
 
     getWeatherData();
-    loadAutomationStates();
     calculateTotalPower();
     calculateAverageRoomTemp();
     calculateAverageHumidity();
@@ -2177,7 +2905,9 @@ document.addEventListener('DOMContentLoaded', function () {
     initSaveDevice();
     initDeleteDevice();
     initLogs();
-    initAutomationToggles();
+    initSceneManagement();
+    initSceneTriggers();
+    initTriggerTypeSelector();
     initDeviceCardClick();
     initDeviceTypeSelect();
     initSignalR();

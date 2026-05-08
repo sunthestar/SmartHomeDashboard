@@ -156,6 +156,7 @@ namespace SmartHomeDashboard.Data
                 entity.Property(e => e.Actions).HasColumnType("text");
                 entity.Property(e => e.ExecuteTime).HasMaxLength(50);
                 entity.Property(e => e.RepeatDays).HasMaxLength(50);
+                entity.Property(e => e.LinkedScenes).HasColumnType("text");  // 新增
                 entity.Property(e => e.CreatedAt).IsRequired();
             });
 
