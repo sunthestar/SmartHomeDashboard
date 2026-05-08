@@ -54,6 +54,24 @@ builder.Services.AddSignalR()
         options.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
     });
 
+// 配置 DeepSeek 设置（支持环境变量）
+builder.Services.Configure<DeepSeekSettings>(options =>
+{
+    // 优先使用环境变量
+    var apiKey = Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY");
+    if (!string.IsNullOrEmpty(apiKey))
+    {
+        options.ApiKey = apiKey;
+    }
+    else
+    {
+        // 回退到配置文件
+        builder.Configuration.GetSection("DeepSeek").Bind(options);
+    }
+    options.ApiUrl = builder.Configuration["DeepSeek:ApiUrl"] ?? "https://api.deepseek.com/chat/completions";
+    options.Model = builder.Configuration["DeepSeek:Model"] ?? "deepseek-chat";
+});
+
 // 注册服务
 builder.Services.AddSingleton<DeviceDataService>();
 builder.Services.AddSingleton<TcpServerService>();
@@ -65,7 +83,6 @@ builder.Services.AddSingleton<SystemLogService>();
 builder.Services.AddSingleton<TcpConnectionService>();
 builder.Services.AddSingleton<AIAssistantService>();
 builder.Services.AddHostedService<SceneSchedulerService>();
-builder.Services.Configure<DeepSeekSettings>(builder.Configuration.GetSection("DeepSeek"));
 builder.Services.AddHttpClient();
 
 // 注册后台服务
